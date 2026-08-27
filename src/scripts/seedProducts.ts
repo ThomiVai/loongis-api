@@ -89,7 +89,7 @@ async function seedCategories() {
       },
       {
         upsert: true,
-        new: true,
+        returnDocument: "after",
         runValidators: true,
         setDefaultsOnInsert: true,
       },
@@ -114,7 +114,7 @@ async function seedCategories() {
       },
       {
         upsert: true,
-        new: true,
+        returnDocument: "after",
         runValidators: true,
         setDefaultsOnInsert: true,
       },
@@ -491,7 +491,7 @@ async function seedProducts(): Promise<void> {
         {
           upsert: true,
           runValidators: true,
-          new: true,
+          returnDocument: "after",
           setDefaultsOnInsert: true,
         },
       );
