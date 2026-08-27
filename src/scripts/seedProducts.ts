@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 
 import { connectDatabase } from "../config/database";
 import { Category } from "../models/category.model";
+
 import {
   Product,
   type ProductOption,
@@ -74,55 +75,59 @@ async function seedCategories() {
     "Verificando categorías...",
   );
 
-  const hamburgerCategory =
-    await Category.findOneAndUpdate(
-      {
+  /* =====================================
+     HAMBURGUESAS
+  ===================================== */
+
+  let hamburgerCategory =
+    await Category.findOne({
+      slug: "hamburguesas",
+    });
+
+  if (!hamburgerCategory) {
+    hamburgerCategory =
+      await Category.create({
+        name: "Hamburguesas",
         slug: "hamburguesas",
-      },
-      {
-        $set: {
-          name: "Hamburguesas",
-          slug: "hamburguesas",
-          active: true,
-          order: 1,
-        },
-      },
-      {
-        upsert: true,
-        returnDocument: "after",
-        runValidators: true,
-        setDefaultsOnInsert: true,
-      },
+        active: true,
+        order: 1,
+      });
+
+    console.log(
+      "✓ Hamburguesas creada",
     );
+  } else {
+    console.log(
+      "↷ Hamburguesas ya existe, se omite",
+    );
+  }
 
-  console.log(
-    "✓ Hamburguesas",
-  );
+  /* =====================================
+     COMBOS
+  ===================================== */
 
-  const comboCategory =
-    await Category.findOneAndUpdate(
-      {
+  let comboCategory =
+    await Category.findOne({
+      slug: "combos",
+    });
+
+  if (!comboCategory) {
+    comboCategory =
+      await Category.create({
+        name: "Combos",
         slug: "combos",
-      },
-      {
-        $set: {
-          name: "Combos",
-          slug: "combos",
-          active: true,
-          order: 2,
-        },
-      },
-      {
-        upsert: true,
-        returnDocument: "after",
-        runValidators: true,
-        setDefaultsOnInsert: true,
-      },
-    );
+        active: true,
+        order: 2,
+      });
 
-  console.log(
-    "✓ Combos",
-  );
+    console.log(
+      "✓ Combos creada",
+    );
+  } else {
+    console.log(
+      "↷ Combos ya existe, se omite",
+    );
+  }
 
   return {
     hamburgerCategory,
@@ -151,15 +156,16 @@ async function seedProducts(): Promise<void> {
     const {
       hamburgerCategory,
       comboCategory,
-    } = await seedCategories();
+    } =
+      await seedCategories();
 
     console.log("");
     console.log(
-      "Cargando catálogo...",
+      "Verificando catálogo...",
     );
 
     /* =====================================
-       CATÁLOGO
+       CATÁLOGO INICIAL
     ===================================== */
 
     const products = [
@@ -475,48 +481,83 @@ async function seedProducts(): Promise<void> {
     ];
 
     /* =====================================
-       UPSERT DE PRODUCTOS
+       CREAR SOLO PRODUCTOS FALTANTES
     ===================================== */
+
+    let createdProducts =
+      0;
+
+    let skippedProducts =
+      0;
 
     for (
       const product of products
     ) {
-      await Product.findOneAndUpdate(
-        {
-          slug: product.slug,
-        },
-        {
-          $set: product,
-        },
-        {
-          upsert: true,
-          runValidators: true,
-          returnDocument: "after",
-          setDefaultsOnInsert: true,
-        },
+      /*
+        Buscamos tanto por legacyId
+        como por slug.
+
+        Así evitamos duplicar un producto
+        incluso si su nombre / slug fue
+        modificado desde el panel admin.
+      */
+
+      const existingProduct =
+        await Product.findOne({
+          $or: [
+            {
+              legacyId:
+                product.legacyId,
+            },
+            {
+              slug:
+                product.slug,
+            },
+          ],
+        });
+
+      if (existingProduct) {
+        console.log(
+          `↷ ${product.name} ya existe, se omite`,
+        );
+
+        skippedProducts += 1;
+
+        continue;
+      }
+
+      await Product.create(
+        product,
       );
 
       console.log(
-        `✓ ${product.name}`,
+        `✓ ${product.name} creado`,
       );
+
+      createdProducts += 1;
     }
+
+    /* =====================================
+       RESUMEN
+    ===================================== */
 
     console.log("");
     console.log(
-      "Base de datos inicializada correctamente.",
+      "Base de datos verificada correctamente.",
     );
 
     console.log(
-      "2 categorías cargadas.",
+      `${createdProducts} productos creados.`,
     );
 
     console.log(
-      `${products.length} productos cargados.`,
+      `${skippedProducts} productos existentes sin modificar.`,
     );
 
     console.log("");
   } catch (error) {
     console.error("");
+
     console.error(
       "Error inicializando la base de datos:",
       error,
