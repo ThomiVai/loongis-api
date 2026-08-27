@@ -6,6 +6,7 @@ import morgan from "morgan";
 import { authRouter } from "./routes/auth.routes";
 import { categoryRouter } from "./routes/category.routes";
 import { healthRouter } from "./routes/health.routes";
+import { inventoryRouter } from "./routes/inventory.routes";
 import { orderRouter } from "./routes/order.routes";
 import { productRouter } from "./routes/product.routes";
 
@@ -124,6 +125,9 @@ app.get(
           orders:
             "/api/orders",
 
+          inventory:
+            "/api/inventory",
+
           login:
             "/api/auth/login",
         },
@@ -158,6 +162,11 @@ app.use(
 app.use(
   "/api/orders",
   orderRouter,
+);
+
+app.use(
+  "/api/inventory",
+  inventoryRouter,
 );
 
 /* ========================================
