@@ -319,6 +319,7 @@ export async function createProduct(
       imageAlt,
       category,
       featured = false,
+      dailyPromo = false,
       active = true,
       order = 0,
       sizes = [],
@@ -432,12 +433,14 @@ export async function createProduct(
       return;
     }
 
-    const categoryExists =
-      await Category.exists({
-        _id: category,
-      });
+    const categoryDocument =
+      await Category.findById(
+        category,
+      ).select(
+        "slug",
+      );
 
-    if (!categoryExists) {
+    if (!categoryDocument) {
       response.status(404).json({
         success: false,
         message:
@@ -455,6 +458,33 @@ export async function createProduct(
         success: false,
         message:
           "El campo featured debe ser verdadero o falso.",
+      });
+
+      return;
+    }
+
+    if (
+      typeof dailyPromo !==
+      "boolean"
+    ) {
+      response.status(400).json({
+        success: false,
+        message:
+          "El campo dailyPromo debe ser verdadero o falso.",
+      });
+
+      return;
+    }
+
+    if (
+      dailyPromo &&
+      categoryDocument.slug !==
+        "combos"
+    ) {
+      response.status(400).json({
+        success: false,
+        message:
+          "Solo un producto de la categoría Combos puede ser el combo del día.",
       });
 
       return;
@@ -581,6 +611,19 @@ export async function createProduct(
       }
     }
 
+    if (dailyPromo) {
+      await Product.updateMany(
+        {
+          dailyPromo: true,
+        },
+        {
+          $set: {
+            dailyPromo: false,
+          },
+        },
+      );
+    }
+
     const product =
       await Product.create({
         legacyId,
@@ -595,6 +638,7 @@ export async function createProduct(
           normalizedImageAlt,
         category,
         featured,
+        dailyPromo,
         active,
         order,
         sizes:
@@ -677,6 +721,7 @@ export async function updateProduct(
       imageAlt,
       category,
       featured,
+      dailyPromo,
       active,
       order,
       sizes,
@@ -926,6 +971,26 @@ export async function updateProduct(
     }
 
     if (
+      dailyPromo !== undefined
+    ) {
+      if (
+        typeof dailyPromo !==
+        "boolean"
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            "El campo dailyPromo debe ser verdadero o falso.",
+        });
+
+        return;
+      }
+
+      product.dailyPromo =
+        dailyPromo;
+    }
+
+    if (
       active !== undefined
     ) {
       if (
@@ -1024,6 +1089,53 @@ export async function updateProduct(
 
       product.ingredients =
         parsedIngredients;
+    }
+
+    const finalCategory =
+      await Category.findById(
+        product.category,
+      ).select(
+        "slug",
+      );
+
+    if (!finalCategory) {
+      response.status(404).json({
+        success: false,
+        message:
+          "La categoría indicada no existe.",
+      });
+
+      return;
+    }
+
+    if (
+      product.dailyPromo &&
+      finalCategory.slug !==
+        "combos"
+    ) {
+      response.status(400).json({
+        success: false,
+        message:
+          "Solo un producto de la categoría Combos puede ser el combo del día.",
+      });
+
+      return;
+    }
+
+    if (product.dailyPromo) {
+      await Product.updateMany(
+        {
+          _id: {
+            $ne: product._id,
+          },
+          dailyPromo: true,
+        },
+        {
+          $set: {
+            dailyPromo: false,
+          },
+        },
+      );
     }
 
     await product.save();

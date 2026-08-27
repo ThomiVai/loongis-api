@@ -25,6 +25,7 @@ export interface ProductDocument {
   category: Types.ObjectId;
 
   featured: boolean;
+  dailyPromo: boolean;
   active: boolean;
   order: number;
 
@@ -148,6 +149,11 @@ const productSchema =
         default: false,
       },
 
+      dailyPromo: {
+        type: Boolean,
+        default: false,
+      },
+
       active: {
         type: Boolean,
         default: true,
@@ -179,6 +185,23 @@ const productSchema =
       versionKey: false,
     },
   );
+
+/*
+  Protección adicional de base de datos:
+  puede existir como máximo un producto
+  con dailyPromo = true.
+*/
+productSchema.index(
+  {
+    dailyPromo: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: {
+      dailyPromo: true,
+    },
+  },
+);
 
 export const Product =
   model<ProductDocument>(
