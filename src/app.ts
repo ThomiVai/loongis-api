@@ -6,6 +6,7 @@ import morgan from "morgan";
 import { authRouter } from "./routes/auth.routes";
 import { categoryRouter } from "./routes/category.routes";
 import { healthRouter } from "./routes/health.routes";
+import { orderRouter } from "./routes/order.routes";
 import { productRouter } from "./routes/product.routes";
 
 export const app = express();
@@ -106,15 +107,23 @@ app.get(
       .status(200)
       .json({
         success: true,
+
         message:
           "Loongis API funcionando correctamente.",
+
         endpoints: {
           health:
             "/api/health",
+
           products:
             "/api/products",
+
           categories:
             "/api/categories",
+
+          orders:
+            "/api/orders",
+
           login:
             "/api/auth/login",
         },
@@ -146,6 +155,11 @@ app.use(
   productRouter,
 );
 
+app.use(
+  "/api/orders",
+  orderRouter,
+);
+
 /* ========================================
    RUTA NO ENCONTRADA
 ======================================== */
@@ -159,6 +173,7 @@ app.use(
       .status(404)
       .json({
         success: false,
+
         message:
           "La ruta solicitada no existe.",
       });
