@@ -8,8 +8,16 @@ import {
   updateProduct,
 } from "../controllers/product.controller";
 
+import {
+  requireAdmin,
+} from "../middlewares/requireAdmin";
+
 export const productRouter =
   Router();
+
+/* ========================================
+   RUTAS PÚBLICAS
+======================================== */
 
 productRouter.get(
   "/",
@@ -21,17 +29,24 @@ productRouter.get(
   getProductById,
 );
 
+/* ========================================
+   RUTAS PROTEGIDAS - ADMIN
+======================================== */
+
 productRouter.post(
   "/",
+  requireAdmin,
   createProduct,
 );
 
 productRouter.put(
   "/:id",
+  requireAdmin,
   updateProduct,
 );
 
 productRouter.delete(
   "/:id",
+  requireAdmin,
   deleteProduct,
 );

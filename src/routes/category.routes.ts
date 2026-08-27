@@ -8,8 +8,16 @@ import {
   updateCategory,
 } from "../controllers/category.controller";
 
+import {
+  requireAdmin,
+} from "../middlewares/requireAdmin";
+
 export const categoryRouter =
   Router();
+
+/* ========================================
+   RUTAS PÚBLICAS
+======================================== */
 
 categoryRouter.get(
   "/",
@@ -21,17 +29,24 @@ categoryRouter.get(
   getCategoryById,
 );
 
+/* ========================================
+   RUTAS PROTEGIDAS - ADMIN
+======================================== */
+
 categoryRouter.post(
   "/",
+  requireAdmin,
   createCategory,
 );
 
 categoryRouter.put(
   "/:id",
+  requireAdmin,
   updateCategory,
 );
 
 categoryRouter.delete(
   "/:id",
+  requireAdmin,
   deleteCategory,
 );

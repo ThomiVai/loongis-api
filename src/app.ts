@@ -3,6 +3,7 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 
+import { authRouter } from "./routes/auth.routes";
 import { categoryRouter } from "./routes/category.routes";
 import { healthRouter } from "./routes/health.routes";
 import { productRouter } from "./routes/product.routes";
@@ -13,9 +14,13 @@ export const app = express();
    CONFIGURACIÓN GENERAL
 ======================================== */
 
-app.disable("x-powered-by");
+app.disable(
+  "x-powered-by",
+);
 
-app.use(helmet());
+app.use(
+  helmet(),
+);
 
 /* ========================================
    CORS
@@ -38,12 +43,6 @@ app.use(
       origin,
       callback,
     ) {
-      /*
-        Permitimos requests sin Origin,
-        como navegador directo, Postman,
-        Render Health Checks, etc.
-      */
-
       if (!origin) {
         callback(
           null,
@@ -103,19 +102,23 @@ app.get(
     _request,
     response,
   ) => {
-    response.status(200).json({
-      success: true,
-      message:
-        "Loongis API funcionando correctamente.",
-      endpoints: {
-        health:
-          "/api/health",
-        products:
-          "/api/products",
-        categories:
-          "/api/categories",
-      },
-    });
+    response
+      .status(200)
+      .json({
+        success: true,
+        message:
+          "Loongis API funcionando correctamente.",
+        endpoints: {
+          health:
+            "/api/health",
+          products:
+            "/api/products",
+          categories:
+            "/api/categories",
+          login:
+            "/api/auth/login",
+        },
+      });
   },
 );
 
@@ -126,6 +129,11 @@ app.get(
 app.use(
   "/api/health",
   healthRouter,
+);
+
+app.use(
+  "/api/auth",
+  authRouter,
 );
 
 app.use(
@@ -147,10 +155,12 @@ app.use(
     _request,
     response,
   ) => {
-    response.status(404).json({
-      success: false,
-      message:
-        "La ruta solicitada no existe.",
-    });
+    response
+      .status(404)
+      .json({
+        success: false,
+        message:
+          "La ruta solicitada no existe.",
+      });
   },
 );

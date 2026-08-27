@@ -6,7 +6,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed": "tsx src/scripts/seedProducts.ts"
+    "seed": "tsx src/scripts/seedProducts.ts",
+    "seed:admin": "tsx src/scripts/seedAdmin.ts"
   },
   "engines": {
     "node": ">=20.19.0 <21"
@@ -16,16 +17,19 @@
   "license": "ISC",
   "description": "API de Loongis",
   "dependencies": {
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.2",
     "mongoose": "^9.8.0",
     "morgan": "^1.11.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^26.1.1",
     "tsx": "^4.23.1",
