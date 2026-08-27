@@ -3,6 +3,8 @@ import type {
   Response,
 } from "express";
 
+import mongoose from "mongoose";
+
 import type {
   ProductOption,
 } from "../models/product.model";
@@ -22,6 +24,7 @@ import {
 import type {
   OrderItemSnapshot,
   OrderOptionSnapshot,
+  OrderStatus,
 } from "../models/order.model";
 
 /* ========================================
@@ -740,6 +743,314 @@ export async function createOrder(
         success: false,
         message:
           "No se pudo registrar el pedido.",
+      });
+  }
+}
+
+/* ========================================
+   ESTADOS DE PEDIDO
+======================================== */
+
+const orderStatuses:
+  OrderStatus[] = [
+    "pending",
+    "confirmed",
+    "cancelled",
+  ];
+
+function isOrderStatus(
+  value: string,
+): value is OrderStatus {
+  return orderStatuses.includes(
+    value as OrderStatus,
+  );
+}
+
+function getOrderId(
+  request: Request,
+): string | null {
+  const value =
+    request.params.id;
+
+  if (
+    typeof value !== "string" ||
+    !mongoose.isValidObjectId(
+      value,
+    )
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+/* ========================================
+   LISTAR PEDIDOS - ADMIN
+======================================== */
+
+export async function getOrders(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const status =
+      getString(
+        request.query.status,
+      );
+
+    if (
+      status &&
+      !isOrderStatus(status)
+    ) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "El estado solicitado no es válido.",
+        });
+
+      return;
+    }
+
+    const filter =
+      isOrderStatus(status)
+        ? {
+            status,
+          }
+        : undefined;
+
+    const orders =
+      await Order.find(
+        filter,
+      )
+        .sort({
+          createdAt: -1,
+          orderNumber: -1,
+        })
+        .lean();
+
+    response
+      .status(200)
+      .json({
+        success: true,
+        data: orders,
+      });
+  } catch (error) {
+    console.error(
+      "Error al obtener pedidos:",
+      error,
+    );
+
+    response
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "No se pudieron cargar los pedidos.",
+      });
+  }
+}
+
+/* ========================================
+   OBTENER PEDIDO - ADMIN
+======================================== */
+
+export async function getOrderById(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const orderId =
+      getOrderId(request);
+
+    if (!orderId) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "El identificador del pedido no es válido.",
+        });
+
+      return;
+    }
+
+    const order =
+      await Order.findById(
+        orderId,
+      ).lean();
+
+    if (!order) {
+      response
+        .status(404)
+        .json({
+          success: false,
+          message:
+            "El pedido solicitado no existe.",
+        });
+
+      return;
+    }
+
+    response
+      .status(200)
+      .json({
+        success: true,
+        data: order,
+      });
+  } catch (error) {
+    console.error(
+      "Error al obtener pedido:",
+      error,
+    );
+
+    response
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "No se pudo cargar el pedido.",
+      });
+  }
+}
+
+/* ========================================
+   CAMBIAR ESTADO - ADMIN
+======================================== */
+
+export async function updateOrderStatus(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const orderId =
+      getOrderId(request);
+
+    if (!orderId) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "El identificador del pedido no es válido.",
+        });
+
+      return;
+    }
+
+    if (!isObject(request.body)) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "La actualización no tiene un formato válido.",
+        });
+
+      return;
+    }
+
+    const nextStatus =
+      getString(
+        request.body.status,
+      );
+
+    if (
+      nextStatus !==
+        "confirmed" &&
+      nextStatus !==
+        "cancelled"
+    ) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "El pedido solo puede confirmarse o cancelarse.",
+        });
+
+      return;
+    }
+
+    const order =
+      await Order.findById(
+        orderId,
+      );
+
+    if (!order) {
+      response
+        .status(404)
+        .json({
+          success: false,
+          message:
+            "El pedido solicitado no existe.",
+        });
+
+      return;
+    }
+
+    if (
+      order.status ===
+      nextStatus
+    ) {
+      response
+        .status(200)
+        .json({
+          success: true,
+          message:
+            "El pedido ya tenía ese estado.",
+          data:
+            order.toObject(),
+        });
+
+      return;
+    }
+
+    if (
+      order.status !==
+      "pending"
+    ) {
+      response
+        .status(409)
+        .json({
+          success: false,
+          message:
+            "Un pedido confirmado o cancelado no puede volver a modificarse.",
+        });
+
+      return;
+    }
+
+    order.status =
+      nextStatus;
+
+    await order.save();
+
+    response
+      .status(200)
+      .json({
+        success: true,
+        message:
+          nextStatus ===
+          "confirmed"
+            ? "Pedido confirmado correctamente."
+            : "Pedido cancelado correctamente.",
+        data:
+          order.toObject(),
+      });
+  } catch (error) {
+    console.error(
+      "Error al actualizar estado del pedido:",
+      error,
+    );
+
+    response
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "No se pudo actualizar el estado del pedido.",
       });
   }
 }
