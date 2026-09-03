@@ -11,6 +11,7 @@ export type StoreOrderMode =
 export interface StoreSettingsDocument {
   _id: string;
   orderMode: StoreOrderMode;
+  inventoryTrackingEnabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +32,12 @@ const storeSettingsSchema =
           "paused",
         ],
         default: "automatic",
+        required: true,
+      },
+
+      inventoryTrackingEnabled: {
+        type: Boolean,
+        default: false,
         required: true,
       },
     },

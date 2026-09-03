@@ -15,6 +15,121 @@ import {
   type InventoryMovementType,
 } from "../models/inventoryMovement.model";
 
+import {
+  getInventoryTrackingStatus,
+  InventoryTrackingSettingsError,
+  updateInventoryTrackingEnabled,
+} from "../services/inventoryTracking.service";
+
+/* ========================================
+   CONFIGURACIÓN DE SEGUIMIENTO
+======================================== */
+
+export async function getInventorySettings(
+  _request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const status =
+      await getInventoryTrackingStatus();
+
+    response
+      .status(200)
+      .json({
+        success: true,
+        data: status,
+      });
+  } catch (error) {
+    console.error(
+      "Error al obtener la configuración de inventario:",
+      error,
+    );
+
+    response
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "No se pudo cargar la configuración de inventario.",
+      });
+  }
+}
+
+export async function updateInventorySettings(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    if (
+      typeof request.body !==
+        "object" ||
+      request.body === null ||
+      Array.isArray(
+        request.body,
+      ) ||
+      typeof request.body
+        .enabled !==
+        "boolean"
+    ) {
+      response
+        .status(400)
+        .json({
+          success: false,
+          message:
+            "La configuración enviada no es válida.",
+        });
+
+      return;
+    }
+
+    const status =
+      await updateInventoryTrackingEnabled(
+        request.body.enabled,
+      );
+
+    response
+      .status(200)
+      .json({
+        success: true,
+        message:
+          status.enabled
+            ? "Descuento automático de stock activado."
+            : "Descuento automático de stock pausado.",
+        data: status,
+      });
+  } catch (error) {
+    if (
+      error instanceof
+      InventoryTrackingSettingsError
+    ) {
+      response
+        .status(
+          error.statusCode,
+        )
+        .json({
+          success: false,
+          message:
+            error.message,
+        });
+
+      return;
+    }
+
+    console.error(
+      "Error al actualizar la configuración de inventario:",
+      error,
+    );
+
+    response
+      .status(500)
+      .json({
+        success: false,
+        message:
+          "No se pudo actualizar la configuración de inventario.",
+      });
+  }
+}
+
 /* ========================================
    HELPERS
 ======================================== */

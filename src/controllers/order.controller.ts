@@ -1102,7 +1102,9 @@ export async function updateOrderStatus(
           message:
             result.alreadyConfirmed
               ? "El pedido ya estaba confirmado."
-              : "Pedido confirmado y stock descontado correctamente.",
+              : result.inventorySkipped
+                ? "Pedido confirmado. El control de stock todavía está en preparación, por lo que no se descontaron insumos."
+                : "Pedido confirmado y stock descontado correctamente.",
           data:
             result.order.toObject(),
         });

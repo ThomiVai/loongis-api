@@ -25,6 +25,10 @@ import {
   type ProductRecipeDocument,
 } from "../models/productRecipe.model";
 
+import {
+  isInventoryTrackingEnabled,
+} from "./inventoryTracking.service";
+
 /* ========================================
    TIPOS
 ======================================== */
@@ -42,6 +46,7 @@ type ConfirmedOrderResult = {
   order:
     HydratedDocument<OrderDocument>;
   alreadyConfirmed: boolean;
+  inventorySkipped: boolean;
 };
 
 /* ========================================
@@ -764,6 +769,9 @@ export async function confirmOrderWithInventory(
             order,
             alreadyConfirmed:
               true,
+            inventorySkipped:
+              order.inventoryTrackingStatus !==
+              "deducted",
           };
 
           return;
@@ -777,6 +785,35 @@ export async function confirmOrderWithInventory(
             409,
             "Un pedido confirmado o cancelado no puede volver a modificarse.",
           );
+        }
+
+        const inventoryTrackingEnabled =
+          await isInventoryTrackingEnabled(
+            session,
+          );
+
+        if (
+          !inventoryTrackingEnabled
+        ) {
+          order.status =
+            "confirmed";
+
+          order.inventoryTrackingStatus =
+            "not_enabled";
+
+          await order.save({
+            session,
+          });
+
+          result = {
+            order,
+            alreadyConfirmed:
+              false,
+            inventorySkipped:
+              true,
+          };
+
+          return;
         }
 
         const requirements =
@@ -797,6 +834,9 @@ export async function confirmOrderWithInventory(
         order.inventoryDeductedAt =
           new Date();
 
+        order.inventoryTrackingStatus =
+          "deducted";
+
         await order.save({
           session,
         });
@@ -804,6 +844,8 @@ export async function confirmOrderWithInventory(
         result = {
           order,
           alreadyConfirmed:
+            false,
+          inventorySkipped:
             false,
         };
       },

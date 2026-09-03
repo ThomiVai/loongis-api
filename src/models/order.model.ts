@@ -17,6 +17,10 @@ export type OrderStatus =
   | "confirmed"
   | "cancelled";
 
+export type OrderInventoryTrackingStatus =
+  | "not_enabled"
+  | "deducted";
+
 export interface OrderOptionSnapshot {
   id: string;
   name: string;
@@ -89,6 +93,9 @@ export interface OrderDocument {
   status: OrderStatus;
 
   inventoryDeductedAt?: Date;
+
+  inventoryTrackingStatus?:
+    OrderInventoryTrackingStatus;
 
   generalNotes: string;
 }
@@ -359,6 +366,16 @@ const orderSchema =
 
       inventoryDeductedAt: {
         type: Date,
+        required: false,
+        default: undefined,
+      },
+
+      inventoryTrackingStatus: {
+        type: String,
+        enum: [
+          "not_enabled",
+          "deducted",
+        ],
         required: false,
         default: undefined,
       },

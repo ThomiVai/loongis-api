@@ -6,8 +6,10 @@ import {
   createIngredient,
   createInventoryMovement,
   getIngredients,
+  getInventorySettings,
   getInventoryMovements,
   updateIngredient,
+  updateInventorySettings,
 } from "../controllers/inventory.controller";
 
 import {
@@ -20,6 +22,18 @@ export const inventoryRouter =
 /* ========================================
    TODO EL INVENTARIO ES ADMIN
 ======================================== */
+
+inventoryRouter.get(
+  "/settings",
+  requireAdmin,
+  getInventorySettings,
+);
+
+inventoryRouter.patch(
+  "/settings",
+  requireAdmin,
+  updateInventorySettings,
+);
 
 inventoryRouter.get(
   "/ingredients",
