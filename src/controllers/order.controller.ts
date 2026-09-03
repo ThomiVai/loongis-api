@@ -25,6 +25,11 @@ import {
   getStoreStatus,
 } from "../services/storeStatus.service";
 
+import {
+  confirmOrderWithInventory,
+  OrderInventoryError,
+} from "../services/orderInventory.service";
+
 import type {
   OrderItemSnapshot,
   OrderChoiceSnapshot,
@@ -1081,44 +1086,85 @@ export async function updateOrderStatus(
       return;
     }
 
-    const order =
-      await Order.findById(
-        orderId,
-      );
-
-    if (!order) {
-      response
-        .status(404)
-        .json({
-          success: false,
-          message:
-            "El pedido solicitado no existe.",
-        });
-
-      return;
-    }
-
     if (
-      order.status ===
-      nextStatus
+      nextStatus ===
+      "confirmed"
     ) {
+      const result =
+        await confirmOrderWithInventory(
+          orderId,
+        );
+
       response
         .status(200)
         .json({
           success: true,
           message:
-            "El pedido ya tenía ese estado.",
+            result.alreadyConfirmed
+              ? "El pedido ya estaba confirmado."
+              : "Pedido confirmado y stock descontado correctamente.",
           data:
-            order.toObject(),
+            result.order.toObject(),
         });
 
       return;
     }
 
-    if (
-      order.status !==
-      "pending"
-    ) {
+    const order =
+      await Order.findOneAndUpdate(
+        {
+          _id:
+            orderId,
+          status:
+            "pending",
+        },
+        {
+          $set: {
+            status:
+              "cancelled",
+          },
+        },
+        {
+          new:
+            true,
+        },
+      );
+
+    if (!order) {
+      const existingOrder =
+        await Order.findById(
+          orderId,
+        );
+
+      if (!existingOrder) {
+        response
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "El pedido solicitado no existe.",
+          });
+
+        return;
+      }
+
+      if (
+        existingOrder.status ===
+        "cancelled"
+      ) {
+        response
+          .status(200)
+          .json({
+            success: true,
+            message:
+              "El pedido ya estaba cancelado.",
+            data:
+              existingOrder.toObject(),
+          });
+
+        return;
+      }
+
       response
         .status(409)
         .json({
@@ -1130,24 +1176,33 @@ export async function updateOrderStatus(
       return;
     }
 
-    order.status =
-      nextStatus;
-
-    await order.save();
-
     response
       .status(200)
       .json({
         success: true,
         message:
-          nextStatus ===
-          "confirmed"
-            ? "Pedido confirmado correctamente."
-            : "Pedido cancelado correctamente.",
+          "Pedido cancelado correctamente.",
         data:
           order.toObject(),
       });
   } catch (error) {
+    if (
+      error instanceof
+      OrderInventoryError
+    ) {
+      response
+        .status(
+          error.statusCode,
+        )
+        .json({
+          success: false,
+          message:
+            error.message,
+        });
+
+      return;
+    }
+
     console.error(
       "Error al actualizar estado del pedido:",
       error,

@@ -88,6 +88,8 @@ export interface OrderDocument {
 
   status: OrderStatus;
 
+  inventoryDeductedAt?: Date;
+
   generalNotes: string;
 }
 
@@ -353,6 +355,12 @@ const orderSchema =
         ],
         default: "pending",
         index: true,
+      },
+
+      inventoryDeductedAt: {
+        type: Date,
+        required: false,
+        default: undefined,
       },
 
       generalNotes: {

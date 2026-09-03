@@ -14,6 +14,9 @@ export type InventoryMovementType =
 export interface InventoryMovementDocument {
   ingredient: Types.ObjectId;
 
+  order?: Types.ObjectId;
+  orderNumber?: number;
+
   type: InventoryMovementType;
 
   change: number;
@@ -33,6 +36,20 @@ const inventoryMovementSchema =
         type: Schema.Types.ObjectId,
         ref: "Ingredient",
         required: true,
+        index: true,
+      },
+
+      order: {
+        type: Schema.Types.ObjectId,
+        ref: "Order",
+        required: false,
+        index: true,
+      },
+
+      orderNumber: {
+        type: Number,
+        required: false,
+        min: 1,
         index: true,
       },
 
@@ -93,6 +110,11 @@ const inventoryMovementSchema =
   );
 
 inventoryMovementSchema.index({
+  createdAt: -1,
+});
+
+inventoryMovementSchema.index({
+  order: 1,
   createdAt: -1,
 });
 
