@@ -21,8 +21,13 @@ import {
   Order,
 } from "../models/order.model";
 
+import {
+  getStoreStatus,
+} from "../services/storeStatus.service";
+
 import type {
   OrderItemSnapshot,
+  OrderChoiceSnapshot,
   OrderOptionSnapshot,
   OrderStatus,
 } from "../models/order.model";
@@ -171,6 +176,16 @@ export async function createOrder(
   response: Response,
 ): Promise<void> {
   try {
+    const storeStatus =
+      await getStoreStatus();
+
+    if (!storeStatus.canOrder) {
+      throw new OrderRequestError(
+        409,
+        `No estamos tomando pedidos en este momento. ${storeStatus.detailLabel}`,
+      );
+    }
+
     if (!isObject(request.body)) {
       throw new OrderRequestError(
         400,
@@ -228,9 +243,7 @@ export async function createOrder(
 
     if (
       deliveryMethod !==
-        "delivery" &&
-      deliveryMethod !==
-        "pickup"
+        "delivery"
     ) {
       throw new OrderRequestError(
         400,
@@ -238,11 +251,7 @@ export async function createOrder(
       );
     }
 
-    if (
-      deliveryMethod ===
-        "delivery" &&
-      !address
-    ) {
+    if (!address) {
       throw new OrderRequestError(
         400,
         "La dirección es obligatoria para los envíos.",
@@ -428,6 +437,46 @@ export async function createOrder(
             );
           }
 
+          const rawChoices =
+            customization.choices ?? [];
+
+          if (!Array.isArray(rawChoices)) {
+            throw new OrderRequestError(
+              400,
+              `Las elecciones del producto ${index + 1} no son válidas.`,
+            );
+          }
+
+          const choices = rawChoices.map(
+            (rawChoice) => {
+              if (!isObject(rawChoice)) {
+                throw new OrderRequestError(
+                  400,
+                  `Una elección del producto ${index + 1} no es válida.`,
+                );
+              }
+
+              const groupId = getString(rawChoice.groupId);
+              const optionId = getString(rawChoice.optionId);
+              const removed = getStringArray(
+                rawChoice.removedIngredients,
+              );
+
+              if (!groupId || !optionId || removed === null) {
+                throw new OrderRequestError(
+                  400,
+                  `Una elección del producto ${index + 1} está incompleta.`,
+                );
+              }
+
+              return {
+                groupId,
+                optionId,
+                removedIngredients: removed,
+              };
+            },
+          );
+
           return {
             legacyId,
             quantity,
@@ -435,6 +484,7 @@ export async function createOrder(
             extraIds,
             removedIngredients,
             notes,
+            choices,
           };
         },
       );
@@ -585,6 +635,66 @@ export async function createOrder(
         );
       }
 
+      const choiceSnapshots: OrderChoiceSnapshot[] = [];
+
+      if (
+        parsedItem.choices.length !==
+        product.choiceGroups.length
+      ) {
+        throw new OrderRequestError(
+          400,
+          `Completá todas las elecciones de ${product.name}.`,
+        );
+      }
+
+      for (const group of product.choiceGroups) {
+        const submitted = parsedItem.choices.find(
+          (choice) => choice.groupId === group.id,
+        );
+
+        const option = submitted
+          ? group.options.find(
+              (candidate) =>
+                candidate.id === submitted.optionId,
+            )
+          : undefined;
+
+        if (!submitted || !option) {
+          throw new OrderRequestError(
+            400,
+            `Una elección de ${product.name} ya no está disponible.`,
+          );
+        }
+
+        const allowedIngredients = new Set(
+          option.ingredients,
+        );
+
+        if (
+          submitted.removedIngredients.some(
+            (ingredient) =>
+              !allowedIngredients.has(ingredient),
+          )
+        ) {
+          throw new OrderRequestError(
+            400,
+            `Los ingredientes quitados de ${group.label} no son válidos.`,
+          );
+        }
+
+        choiceSnapshots.push({
+          groupId: group.id,
+          groupLabel: group.label,
+          optionId: option.id,
+          optionLabel: option.label,
+          kind: option.kind,
+          productLegacyId: option.productLegacyId,
+          sizeId: option.sizeId,
+          removedIngredients:
+            submitted.removedIngredients,
+        });
+      }
+
       const extrasPrice =
         selectedExtras.reduce(
           (
@@ -655,6 +765,8 @@ export async function createOrder(
 
           notes:
             parsedItem.notes,
+
+          choices: choiceSnapshots,
         },
       });
     }
@@ -672,11 +784,7 @@ export async function createOrder(
 
           phone,
 
-          address:
-            deliveryMethod ===
-              "delivery"
-              ? address
-              : "",
+          address,
         },
 
         deliveryMethod,

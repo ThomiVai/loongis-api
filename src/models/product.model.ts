@@ -11,6 +11,21 @@ export interface ProductOption {
   priceModifier: number;
 }
 
+export interface ProductChoiceOption {
+  id: string;
+  label: string;
+  kind: "burger" | "beverage";
+  productLegacyId?: number;
+  sizeId?: "simple" | "doble";
+  ingredients: string[];
+}
+
+export interface ProductChoiceGroup {
+  id: string;
+  label: string;
+  options: ProductChoiceOption[];
+}
+
 export interface ProductDocument {
   legacyId?: number;
 
@@ -32,6 +47,12 @@ export interface ProductDocument {
   sizes: ProductOption[];
   extras: ProductOption[];
   ingredients: string[];
+  choiceGroups: ProductChoiceGroup[];
+  dailyComboBurgerId?:
+    | "solo-queso"
+    | "clasic"
+    | "bacon"
+    | "crispy";
 }
 
 const productOptionSchema =
@@ -64,6 +85,69 @@ const productOptionSchema =
     {
       _id: false,
     },
+  );
+
+const productChoiceOptionSchema =
+  new Schema<ProductChoiceOption>(
+    {
+      id: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      label: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      kind: {
+        type: String,
+        enum: ["burger", "beverage"],
+        required: true,
+      },
+      productLegacyId: {
+        type: Number,
+        required: false,
+        min: 1,
+      },
+      sizeId: {
+        type: String,
+        enum: ["simple", "doble"],
+        required: false,
+      },
+      ingredients: {
+        type: [String],
+        default: [],
+      },
+    },
+    { _id: false },
+  );
+
+const productChoiceGroupSchema =
+  new Schema<ProductChoiceGroup>(
+    {
+      id: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      label: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      options: {
+        type: [productChoiceOptionSchema],
+        required: true,
+        validate: {
+          validator(options: ProductChoiceOption[]) {
+            return options.length > 0;
+          },
+          message: "Cada elección debe tener opciones.",
+        },
+      },
+    },
+    { _id: false },
   );
 
 const productSchema =
@@ -178,6 +262,23 @@ const productSchema =
       ingredients: {
         type: [String],
         default: [],
+      },
+
+      choiceGroups: {
+        type: [productChoiceGroupSchema],
+        default: [],
+      },
+
+      dailyComboBurgerId: {
+        type: String,
+        enum: [
+          "solo-queso",
+          "clasic",
+          "bacon",
+          "crispy",
+        ],
+        required: false,
+        default: undefined,
       },
     },
     {

@@ -5,6 +5,11 @@ import type {
 
 import mongoose from "mongoose";
 
+import {
+  createDailyComboChoiceGroups,
+  getDailyComboPresentation,
+  isBurgerChoiceId,
+} from "../config/menuChoices";
 import { Category } from "../models/category.model";
 import {
   Product,
@@ -727,6 +732,7 @@ export async function updateProduct(
       sizes,
       extras,
       ingredients,
+      dailyComboBurgerId,
     } = request.body;
 
     if (
@@ -1091,6 +1097,56 @@ export async function updateProduct(
         parsedIngredients;
     }
 
+    if (
+      dailyComboBurgerId !==
+      undefined
+    ) {
+      if (
+        product.legacyId !== 109
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            "La hamburguesa del día solo puede configurarse en el Combo del Día.",
+        });
+
+        return;
+      }
+
+      if (
+        !isBurgerChoiceId(
+          dailyComboBurgerId,
+        )
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            "La hamburguesa seleccionada para el Combo del Día no es válida.",
+        });
+
+        return;
+      }
+
+      product.dailyComboBurgerId =
+        dailyComboBurgerId;
+
+      product.choiceGroups =
+        createDailyComboChoiceGroups(
+          dailyComboBurgerId,
+        );
+
+      const presentation =
+        getDailyComboPresentation(
+          dailyComboBurgerId,
+        );
+
+      product.image =
+        presentation.image;
+
+      product.imageAlt =
+        presentation.imageAlt;
+    }
+
     const finalCategory =
       await Category.findById(
         product.category,
@@ -1191,7 +1247,7 @@ export async function deleteProduct(
     }
 
     const product =
-      await Product.findByIdAndDelete(
+      await Product.findById(
         id,
       );
 
@@ -1204,6 +1260,20 @@ export async function deleteProduct(
 
       return;
     }
+
+    if (
+      product.legacyId === 109
+    ) {
+      response.status(409).json({
+        success: false,
+        message:
+          "El Combo del Día es un producto fijo del sistema y no se puede eliminar.",
+      });
+
+      return;
+    }
+
+    await product.deleteOne();
 
     response.status(200).json({
       success: true,

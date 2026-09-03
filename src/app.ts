@@ -9,6 +9,8 @@ import { healthRouter } from "./routes/health.routes";
 import { inventoryRouter } from "./routes/inventory.routes";
 import { orderRouter } from "./routes/order.routes";
 import { productRouter } from "./routes/product.routes";
+import { recipeRouter } from "./routes/recipe.routes";
+import { storeRouter } from "./routes/store.routes";
 
 export const app = express();
 
@@ -128,6 +130,12 @@ app.get(
           inventory:
             "/api/inventory",
 
+          recipes:
+            "/api/recipes",
+
+          store:
+            "/api/store/status",
+
           login:
             "/api/auth/login",
         },
@@ -167,6 +175,16 @@ app.use(
 app.use(
   "/api/inventory",
   inventoryRouter,
+);
+
+app.use(
+  "/api/recipes",
+  recipeRouter,
+);
+
+app.use(
+  "/api/store",
+  storeRouter,
 );
 
 /* ========================================

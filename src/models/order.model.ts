@@ -29,6 +29,18 @@ export interface OrderCustomizationSnapshot {
   extras: OrderOptionSnapshot[];
   removedIngredients: string[];
   notes: string;
+  choices: OrderChoiceSnapshot[];
+}
+
+export interface OrderChoiceSnapshot {
+  groupId: string;
+  groupLabel: string;
+  optionId: string;
+  optionLabel: string;
+  kind: "burger" | "beverage";
+  productLegacyId?: number;
+  sizeId?: "simple" | "doble";
+  removedIngredients: string[];
 }
 
 export interface OrderCustomerSnapshot {
@@ -137,6 +149,33 @@ const orderCustomizationSchema =
         default: "",
         trim: true,
         maxlength: 300,
+      },
+
+      choices: {
+        type: [
+          new Schema<OrderChoiceSnapshot>(
+            {
+              groupId: { type: String, required: true, trim: true },
+              groupLabel: { type: String, required: true, trim: true },
+              optionId: { type: String, required: true, trim: true },
+              optionLabel: { type: String, required: true, trim: true },
+              kind: {
+                type: String,
+                enum: ["burger", "beverage"],
+                required: true,
+              },
+              productLegacyId: { type: Number, required: false, min: 1 },
+              sizeId: {
+                type: String,
+                enum: ["simple", "doble"],
+                required: false,
+              },
+              removedIngredients: { type: [String], default: [] },
+            },
+            { _id: false },
+          ),
+        ],
+        default: [],
       },
     },
     {
