@@ -16,6 +16,7 @@ import {
 import {
   ProductRecipe,
   type RecipeBaseItem,
+  type RecipeChoiceModifier,
   type RecipeModifierItem,
   type RecipeOptionModifier,
 } from "../models/productRecipe.model";
@@ -36,6 +37,12 @@ type ParsedModifierItem = {
 };
 
 type ParsedOptionModifier = {
+  optionId: string;
+  items: ParsedModifierItem[];
+};
+
+type ParsedChoiceModifier = {
+  groupId: string;
   optionId: string;
   items: ParsedModifierItem[];
 };
@@ -312,6 +319,124 @@ function parseOptionModifiers(
   return parsedModifiers;
 }
 
+function parseChoiceModifiers(
+  value: unknown,
+): ParsedChoiceModifier[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed:
+    ParsedChoiceModifier[] = [];
+
+  const usedKeys =
+    new Set<string>();
+
+  for (const modifier of value) {
+    if (
+      typeof modifier !==
+        "object" ||
+      modifier === null
+    ) {
+      return null;
+    }
+
+    const record =
+      modifier as Record<
+        string,
+        unknown
+      >;
+
+    const groupId =
+      getRequiredString(
+        record.groupId,
+      );
+
+    const optionId =
+      getRequiredString(
+        record.optionId,
+      );
+
+    const key =
+      `${groupId}:${optionId}`;
+
+    if (
+      !groupId ||
+      !optionId ||
+      usedKeys.has(key) ||
+      !Array.isArray(
+        record.items,
+      )
+    ) {
+      return null;
+    }
+
+    usedKeys.add(key);
+
+    const usedIngredients =
+      new Set<string>();
+
+    const items:
+      ParsedModifierItem[] = [];
+
+    for (const item of record.items) {
+      if (
+        typeof item !==
+          "object" ||
+        item === null
+      ) {
+        return null;
+      }
+
+      const itemRecord =
+        item as Record<
+          string,
+          unknown
+        >;
+
+      const ingredient =
+        getRequiredString(
+          itemRecord.ingredient,
+        );
+
+      const quantity =
+        itemRecord.quantity;
+
+      if (
+        !ingredient ||
+        !mongoose.Types.ObjectId.isValid(
+          ingredient,
+        ) ||
+        !isPositiveNumber(
+          quantity,
+        ) ||
+        usedIngredients.has(
+          ingredient,
+        )
+      ) {
+        return null;
+      }
+
+      usedIngredients.add(
+        ingredient,
+      );
+
+      items.push({
+        ingredient,
+        quantity,
+      });
+    }
+
+    parsed.push({
+      groupId,
+      optionId,
+      items,
+    });
+  }
+
+  return parsed;
+}
+
 function collectIngredientIds(
   baseItems:
     ParsedBaseItem[],
@@ -319,6 +444,8 @@ function collectIngredientIds(
     ParsedOptionModifier[],
   extraModifiers:
     ParsedOptionModifier[],
+  choiceModifiers:
+    ParsedChoiceModifier[],
 ): string[] {
   const ids =
     new Set<string>();
@@ -336,6 +463,7 @@ function collectIngredientIds(
     const modifier of [
       ...sizeModifiers,
       ...extraModifiers,
+      ...choiceModifiers,
     ]
   ) {
     for (
@@ -426,7 +554,7 @@ const recipePopulate = [
       "product",
 
     select:
-      "legacyId name slug ingredients sizes extras active",
+      "legacyId name slug ingredients sizes extras choiceGroups active",
   },
 
   {
@@ -448,6 +576,14 @@ const recipePopulate = [
   {
     path:
       "extraModifiers.items.ingredient",
+
+    select:
+      "name slug unit stock minimumStock unitCost active",
+  },
+
+  {
+    path:
+      "choiceModifiers.items.ingredient",
 
     select:
       "name slug unit stock minimumStock unitCost active",
@@ -654,10 +790,17 @@ export async function upsertRecipeByProductId(
         "extra",
       );
 
+    const choiceModifiers =
+      parseChoiceModifiers(
+        request.body
+          .choiceModifiers ?? [],
+      );
+
     if (
       !baseItems ||
       !sizeModifiers ||
-      !extraModifiers
+      !extraModifiers ||
+      !choiceModifiers
     ) {
       response
         .status(400)
@@ -719,6 +862,36 @@ export async function upsertRecipeByProductId(
             message:
               `"${item.removableIngredient}" no figura entre los ingredientes removibles de ${product.name}.`,
           });
+
+        return;
+      }
+    }
+
+    const validChoiceKeys =
+      new Set(
+        product.choiceGroups.flatMap(
+          (group) =>
+            group.options.map(
+              (option) =>
+                `${group.id}:${option.id}`,
+            ),
+        ),
+      );
+
+    for (
+      const modifier of
+      choiceModifiers
+    ) {
+      if (
+        !validChoiceKeys.has(
+          `${modifier.groupId}:${modifier.optionId}`,
+        )
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            `La opción "${modifier.optionId}" ya no existe en ${product.name}.`,
+        });
 
         return;
       }
@@ -810,6 +983,7 @@ export async function upsertRecipeByProductId(
         baseItems,
         sizeModifiers,
         extraModifiers,
+        choiceModifiers,
       );
 
     const existingIngredients =
@@ -890,6 +1064,34 @@ export async function upsertRecipeByProductId(
           }),
         );
 
+    const normalizedChoiceModifiers:
+      RecipeChoiceModifier[] =
+      choiceModifiers
+        .filter(
+          (modifier) =>
+            modifier.items.length >
+            0,
+        )
+        .map(
+          (modifier) => ({
+            groupId:
+              modifier.groupId,
+            optionId:
+              modifier.optionId,
+            items:
+              modifier.items.map(
+                (item) => ({
+                  ingredient:
+                    new mongoose.Types.ObjectId(
+                      item.ingredient,
+                    ),
+                  quantity:
+                    item.quantity,
+                }),
+              ),
+          }),
+        );
+
     await ProductRecipe.findOneAndUpdate(
       {
         product:
@@ -911,6 +1113,9 @@ export async function upsertRecipeByProductId(
           normalizeModifiers(
             extraModifiers,
           ),
+
+        choiceModifiers:
+          normalizedChoiceModifiers,
 
         active,
       },

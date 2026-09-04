@@ -10,6 +10,7 @@ import {
 
 import {
   requireAdmin,
+  requireOwner,
 } from "../middlewares/requireAdmin";
 
 export const productRouter =
@@ -36,17 +37,20 @@ productRouter.get(
 productRouter.post(
   "/",
   requireAdmin,
+  requireOwner,
   createProduct,
 );
 
 productRouter.put(
   "/:id",
   requireAdmin,
+  requireOwner,
   updateProduct,
 );
 
 productRouter.delete(
   "/:id",
   requireAdmin,
+  requireOwner,
   deleteProduct,
 );

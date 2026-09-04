@@ -82,7 +82,7 @@ async function seedAdmin(): Promise<void> {
         $set: {
           email: adminEmail,
           password: passwordHash,
-          role: "admin",
+          role: "owner",
           active: true,
         },
       },

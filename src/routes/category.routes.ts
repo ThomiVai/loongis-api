@@ -10,6 +10,7 @@ import {
 
 import {
   requireAdmin,
+  requireOwner,
 } from "../middlewares/requireAdmin";
 
 export const categoryRouter =
@@ -36,17 +37,20 @@ categoryRouter.get(
 categoryRouter.post(
   "/",
   requireAdmin,
+  requireOwner,
   createCategory,
 );
 
 categoryRouter.put(
   "/:id",
   requireAdmin,
+  requireOwner,
   updateCategory,
 );
 
 categoryRouter.delete(
   "/:id",
   requireAdmin,
+  requireOwner,
   deleteCategory,
 );

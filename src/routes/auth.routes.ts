@@ -5,6 +5,7 @@ import {
 import {
   getCurrentAdmin,
   loginAdmin,
+  changeOwnPassword,
 } from "../controllers/auth.controller";
 
 import {
@@ -31,4 +32,10 @@ authRouter.get(
   "/me",
   requireAdmin,
   getCurrentAdmin,
+);
+
+authRouter.patch(
+  "/password",
+  requireAdmin,
+  changeOwnPassword,
 );

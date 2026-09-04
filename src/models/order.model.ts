@@ -19,7 +19,9 @@ export type OrderStatus =
 
 export type OrderInventoryTrackingStatus =
   | "not_enabled"
-  | "deducted";
+  | "deducted"
+  | "reversed"
+  | "kept_as_waste";
 
 export interface OrderOptionSnapshot {
   id: string;
@@ -96,6 +98,10 @@ export interface OrderDocument {
 
   inventoryTrackingStatus?:
     OrderInventoryTrackingStatus;
+
+  inventoryReversedAt?: Date;
+  cancelledAt?: Date;
+  cancellationReason?: string;
 
   generalNotes: string;
 }
@@ -375,7 +381,29 @@ const orderSchema =
         enum: [
           "not_enabled",
           "deducted",
+          "reversed",
+          "kept_as_waste",
         ],
+        required: false,
+        default: undefined,
+      },
+
+      inventoryReversedAt: {
+        type: Date,
+        required: false,
+        default: undefined,
+      },
+
+      cancelledAt: {
+        type: Date,
+        required: false,
+        default: undefined,
+      },
+
+      cancellationReason: {
+        type: String,
+        trim: true,
+        maxlength: 300,
         required: false,
         default: undefined,
       },

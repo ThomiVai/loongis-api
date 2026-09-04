@@ -12,8 +12,18 @@ import {
 
 import {
   InventoryMovement,
+  type InventoryLotConsumption,
   type InventoryMovementType,
 } from "../models/inventoryMovement.model";
+
+import {
+  InventoryLot,
+} from "../models/inventoryLot.model";
+
+import {
+  consumeInventoryLots,
+  createInventoryLot,
+} from "../services/inventoryLot.service";
 
 import {
   getInventoryTrackingStatus,
@@ -307,11 +317,22 @@ export async function getIngredients(
           name: 1,
         });
 
+    const data =
+      response.locals.admin
+        ?.role === "owner"
+        ? ingredients
+        : ingredients.map(
+            (ingredient) => ({
+              ...ingredient.toObject(),
+              unitCost: undefined,
+            }),
+          );
+
     response
       .status(200)
       .json({
         success: true,
-        data: ingredients,
+        data,
       });
   } catch (error) {
     console.error(
@@ -386,6 +407,18 @@ export async function createIngredient(
         request.body.unitCost,
       );
 
+    const targetStock =
+      getNonNegativeNumber(
+        request.body.targetStock ??
+          minimumStock,
+      );
+
+    const purchaseUnitFactor =
+      getPositiveNumber(
+        request.body
+          .purchaseUnitFactor ?? 1,
+      );
+
     const order =
       getNonNegativeInteger(
         request.body.order,
@@ -395,6 +428,8 @@ export async function createIngredient(
       stock === null ||
       minimumStock === null ||
       unitCost === null ||
+      targetStock === null ||
+      purchaseUnitFactor === null ||
       order === null
     ) {
       response
@@ -447,8 +482,28 @@ export async function createIngredient(
         unit:
           request.body.unit,
         stock,
-        minimumStock,
-        unitCost,
+          minimumStock,
+          targetStock,
+          unitCost,
+          purchaseUnitLabel:
+            getOptionalString(
+              request.body
+                .purchaseUnitLabel,
+            ),
+          purchaseUnitFactor,
+          category:
+            getOptionalString(
+              request.body.category,
+            ),
+          storageLocation:
+            getOptionalString(
+              request.body
+                .storageLocation,
+            ),
+          trackExpiration:
+            request.body
+              .trackExpiration ===
+            true,
         active:
           typeof request.body.active ===
           "boolean"
@@ -484,6 +539,28 @@ export async function createIngredient(
 
         note:
           "Stock inicial",
+
+        performedBy:
+          response.locals.admin
+            ?.id,
+
+        performedByEmail:
+          response.locals.admin
+            ?.email,
+      });
+
+      await InventoryLot.create({
+        ingredient:
+          ingredient._id,
+        receivedAt:
+          new Date(),
+        initialQuantity:
+          stock,
+        remainingQuantity:
+          stock,
+        unitCost,
+        source:
+          "initial",
       });
     }
 
@@ -678,6 +755,29 @@ export async function updateIngredient(
     }
 
     if (
+      request.body.targetStock !==
+      undefined
+    ) {
+      const targetStock =
+        getNonNegativeNumber(
+          request.body.targetStock,
+        );
+
+      if (targetStock === null) {
+        response.status(400).json({
+          success: false,
+          message:
+            "El stock objetivo no es válido.",
+        });
+
+        return;
+      }
+
+      ingredient.targetStock =
+        targetStock;
+    }
+
+    if (
       request.body.unitCost !==
       undefined
     ) {
@@ -702,6 +802,72 @@ export async function updateIngredient(
 
       ingredient.unitCost =
         unitCost;
+    }
+
+    if (
+      request.body.purchaseUnitFactor !==
+      undefined
+    ) {
+      const factor =
+        getPositiveNumber(
+          request.body
+            .purchaseUnitFactor,
+        );
+
+      if (factor === null) {
+        response.status(400).json({
+          success: false,
+          message:
+            "La conversión de compra debe ser mayor a cero.",
+        });
+
+        return;
+      }
+
+      ingredient.purchaseUnitFactor =
+        factor;
+    }
+
+    if (
+      request.body.purchaseUnitLabel !==
+      undefined
+    ) {
+      ingredient.purchaseUnitLabel =
+        getOptionalString(
+          request.body
+            .purchaseUnitLabel,
+        );
+    }
+
+    if (
+      request.body.category !==
+      undefined
+    ) {
+      ingredient.category =
+        getOptionalString(
+          request.body.category,
+        );
+    }
+
+    if (
+      request.body.storageLocation !==
+      undefined
+    ) {
+      ingredient.storageLocation =
+        getOptionalString(
+          request.body
+            .storageLocation,
+        );
+    }
+
+    if (
+      typeof request.body
+        .trackExpiration ===
+      "boolean"
+    ) {
+      ingredient.trackExpiration =
+        request.body
+          .trackExpiration;
     }
 
     if (
@@ -807,172 +973,244 @@ export async function createInventoryMovement(
     return;
   }
 
+  if (
+    request.body.type ===
+      "adjustment" &&
+    response.locals.admin
+      ?.role !== "owner"
+  ) {
+    response.status(403).json({
+      success: false,
+      message:
+        "Los ajustes directos requieren permisos del dueño.",
+    });
+
+    return;
+  }
+
+  const session =
+    await mongoose.startSession();
+
   try {
-    const ingredient =
-      await Ingredient.findById(
-        ingredientId,
-      );
+    let savedIngredient:
+      InstanceType<
+        typeof Ingredient
+      > | null = null;
 
-    if (!ingredient) {
-      response
-        .status(404)
-        .json({
-          success: false,
-          message:
+    let savedMovement:
+      InstanceType<
+        typeof InventoryMovement
+      > | null = null;
+
+    await session.withTransaction(
+      async () => {
+        const ingredient =
+          await Ingredient.findById(
+            ingredientId,
+          ).session(session);
+
+        if (!ingredient) {
+          throw new InventoryTrackingSettingsError(
+            404,
             "El insumo no existe.",
-        });
-
-      return;
-    }
-
-    const type:
-      InventoryMovementType =
-      request.body.type;
-
-    const previousStock =
-      ingredient.stock;
-
-    let newStock =
-      previousStock;
-
-    if (
-      type === "restock" ||
-      type === "waste"
-    ) {
-      const quantity =
-        getPositiveNumber(
-          request.body.quantity,
-        );
-
-      if (quantity === null) {
-        response
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "La cantidad debe ser mayor a cero.",
-          });
-
-        return;
-      }
-
-      if (
-        type === "restock"
-      ) {
-        newStock =
-          previousStock +
-          quantity;
-      } else {
-        if (
-          quantity >
-          previousStock
-        ) {
-          response
-            .status(400)
-            .json({
-              success: false,
-              message:
-                "La merma no puede ser mayor al stock disponible.",
-            });
-
-          return;
+          );
         }
 
-        newStock =
-          previousStock -
-          quantity;
-      }
-    } else {
-      const targetStock =
-        getNonNegativeNumber(
-          request.body.newStock,
-        );
+        const type:
+          InventoryMovementType =
+          request.body.type;
 
-      if (
-        targetStock === null
-      ) {
-        response
-          .status(400)
-          .json({
-            success: false,
-            message:
+        const previousStock =
+          ingredient.stock;
+
+        let newStock =
+          previousStock;
+
+        if (
+          type === "restock" ||
+          type === "waste"
+        ) {
+          const quantity =
+            getPositiveNumber(
+              request.body.quantity,
+            );
+
+          if (quantity === null) {
+            throw new InventoryTrackingSettingsError(
+              400,
+              "La cantidad debe ser mayor a cero.",
+            );
+          }
+
+          if (type === "restock") {
+            newStock =
+              previousStock +
+              quantity;
+          } else {
+            if (
+              quantity >
+              previousStock
+            ) {
+              throw new InventoryTrackingSettingsError(
+                400,
+                "La merma no puede ser mayor al stock disponible.",
+              );
+            }
+
+            newStock =
+              previousStock -
+              quantity;
+          }
+        } else {
+          const targetStock =
+            getNonNegativeNumber(
+              request.body.newStock,
+            );
+
+          if (targetStock === null) {
+            throw new InventoryTrackingSettingsError(
+              400,
               "El nuevo stock debe ser un valor válido y no negativo.",
-          });
+            );
+          }
 
-        return;
-      }
+          newStock =
+            targetStock;
+        }
 
-      newStock =
-        targetStock;
-    }
+        const change =
+          newStock -
+          previousStock;
 
-    const change =
-      newStock -
-      previousStock;
-
-    if (change === 0) {
-      response
-        .status(400)
-        .json({
-          success: false,
-          message:
+        if (change === 0) {
+          throw new InventoryTrackingSettingsError(
+            400,
             "El movimiento no modifica el stock actual.",
-        });
+          );
+        }
 
-      return;
-    }
+        const updated =
+          await Ingredient.findOneAndUpdate(
+            {
+              _id:
+                ingredient._id,
+              stock:
+                previousStock,
+            },
+            {
+              $set: {
+                stock:
+                  newStock,
+              },
+            },
+            {
+              new: true,
+              runValidators: true,
+              session,
+            },
+          );
 
-    const note =
-      getOptionalString(
-        request.body.note,
-      );
+        if (!updated) {
+          throw new InventoryTrackingSettingsError(
+            409,
+            "El stock cambió mientras realizabas el movimiento. Volvé a intentarlo.",
+          );
+        }
 
-    ingredient.stock =
-      newStock;
+        let lotConsumptions:
+          InventoryLotConsumption[] =
+          [];
 
-    await ingredient.save();
-
-    let movement;
-
-    try {
-      movement =
-        await InventoryMovement.create({
-          ingredient:
-            ingredient._id,
-
-          type,
-
-          change,
-
-          previousStock,
-
-          newStock,
-
-          unitCost:
-            ingredient.unitCost,
-
-          estimatedCost:
-            getEstimatedCost(
-              change,
+        if (change < 0) {
+          lotConsumptions =
+            await consumeInventoryLots(
+              ingredient._id,
+              Math.abs(change),
+              previousStock,
               ingredient.unitCost,
-            ),
+              session,
+            );
+        } else {
+          await createInventoryLot(
+            {
+              ingredient:
+                ingredient._id,
+              quantity:
+                change,
+              unitCost:
+                ingredient.unitCost,
+              source:
+                type === "restock"
+                  ? "manual_restock"
+                  : "adjustment",
+              batchNumber:
+                getOptionalString(
+                  request.body
+                    .batchNumber,
+                ),
+              expirationDate:
+                typeof request.body
+                  .expirationDate ===
+                  "string" &&
+                request.body
+                  .expirationDate
+                  ? new Date(
+                      request.body
+                        .expirationDate,
+                    )
+                  : undefined,
+            },
+            session,
+          );
+        }
 
-          note,
-        });
-    } catch (movementError) {
-      /*
-        Si el historial no pudiera guardarse,
-        revertimos el stock para no perder
-        trazabilidad.
-      */
+        const [movement] =
+          await InventoryMovement.create(
+            [
+              {
+                ingredient:
+                  ingredient._id,
+                type,
+                change,
+                previousStock,
+                newStock,
+                unitCost:
+                  ingredient.unitCost,
+                estimatedCost:
+                  getEstimatedCost(
+                    change,
+                    ingredient.unitCost,
+                  ),
+                note:
+                  getOptionalString(
+                    request.body.note,
+                  ),
+                performedBy:
+                  response.locals.admin
+                    ?.id,
+                performedByEmail:
+                  response.locals.admin
+                    ?.email,
+                lotConsumptions,
+              },
+            ],
+            {
+              session,
+            },
+          );
 
-      ingredient.stock =
-        previousStock;
+        if (!movement) {
+          throw new Error(
+            "No se pudo registrar el historial del movimiento.",
+          );
+        }
 
-      await ingredient.save();
-
-      throw movementError;
-    }
+        savedIngredient =
+          updated;
+        savedMovement =
+          movement;
+      },
+    );
 
     response
       .status(201)
@@ -980,11 +1218,28 @@ export async function createInventoryMovement(
         success: true,
 
         data: {
-          ingredient,
-          movement,
+          ingredient:
+            savedIngredient,
+          movement:
+            savedMovement,
         },
       });
   } catch (error) {
+    if (
+      error instanceof
+      InventoryTrackingSettingsError
+    ) {
+      response.status(
+        error.statusCode,
+      ).json({
+        success: false,
+        message:
+          error.message,
+      });
+
+      return;
+    }
+
     console.error(
       "Error al registrar movimiento de inventario:",
       error,
@@ -997,6 +1252,8 @@ export async function createInventoryMovement(
         message:
           "No se pudo registrar el movimiento de inventario.",
       });
+  } finally {
+    await session.endSession();
   }
 }
 
@@ -1032,15 +1289,12 @@ export async function getInventoryMovements(
       requestedLimit > 0
         ? Math.min(
             requestedLimit,
-            100,
+            500,
           )
         : 30;
 
     const filter:
-      Record<
-        string,
-        mongoose.Types.ObjectId
-      > = {};
+      Record<string, unknown> = {};
 
     if (ingredientId) {
       if (
@@ -1065,6 +1319,119 @@ export async function getInventoryMovements(
         );
     }
 
+    const movementType =
+      typeof request.query.type ===
+      "string"
+        ? request.query.type
+        : undefined;
+
+    const validMovementTypes:
+      InventoryMovementType[] = [
+        "initial",
+        "restock",
+        "waste",
+        "adjustment",
+        "sale",
+        "reversal",
+      ];
+
+    if (movementType) {
+      if (
+        !validMovementTypes.includes(
+          movementType as
+            InventoryMovementType,
+        )
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            "El tipo de movimiento no es válido.",
+        });
+
+        return;
+      }
+
+      filter.type =
+        movementType;
+    }
+
+    const performedBy =
+      typeof request.query
+        .performedBy === "string"
+        ? request.query
+            .performedBy
+        : undefined;
+
+    if (performedBy) {
+      if (
+        !mongoose.Types.ObjectId.isValid(
+          performedBy,
+        )
+      ) {
+        response.status(400).json({
+          success: false,
+          message:
+            "El administrador indicado no es válido.",
+        });
+
+        return;
+      }
+
+      filter.performedBy =
+        new mongoose.Types.ObjectId(
+          performedBy,
+        );
+    }
+
+    const createdAt:
+      Record<string, Date> = {};
+
+    if (
+      typeof request.query.from ===
+        "string" &&
+      request.query.from
+    ) {
+      const from =
+        new Date(
+          request.query.from,
+        );
+
+      if (!Number.isNaN(from.getTime())) {
+        createdAt.$gte =
+          from;
+      }
+    }
+
+    if (
+      typeof request.query.to ===
+        "string" &&
+      request.query.to
+    ) {
+      const to =
+        new Date(
+          request.query.to,
+        );
+
+      if (!Number.isNaN(to.getTime())) {
+        to.setUTCHours(
+          23,
+          59,
+          59,
+          999,
+        );
+        createdAt.$lte =
+          to;
+      }
+    }
+
+    if (
+      Object.keys(createdAt)
+        .length > 0
+    ) {
+      filter.createdAt =
+        createdAt;
+    }
+
     const movements =
       await InventoryMovement.find(
         filter,
@@ -1073,16 +1440,38 @@ export async function getInventoryMovements(
           "ingredient",
           "name unit",
         )
+        .populate(
+          "performedBy",
+          "email role",
+        )
+        .populate(
+          "purchase",
+          "invoiceNumber supplierName purchasedAt",
+        )
         .sort({
           createdAt: -1,
         })
-        .limit(limit);
+        .limit(limit)
+        .lean();
+
+    const data =
+      response.locals.admin
+        ?.role === "owner"
+        ? movements
+        : movements.map(
+            (movement) => ({
+              ...movement,
+              unitCost: undefined,
+              estimatedCost:
+                undefined,
+            }),
+          );
 
     response
       .status(200)
       .json({
         success: true,
-        data: movements,
+        data,
       });
   } catch (error) {
     console.error(

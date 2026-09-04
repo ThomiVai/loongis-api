@@ -26,6 +26,8 @@ import {
 } from "../services/storeStatus.service";
 
 import {
+  assertOrderInventoryAvailable,
+  cancelOrderWithInventory,
   confirmOrderWithInventory,
   OrderInventoryError,
 } from "../services/orderInventory.service";
@@ -776,6 +778,10 @@ export async function createOrder(
       });
     }
 
+    await assertOrderInventoryAvailable(
+      orderItems,
+    );
+
     const orderNumber =
       await getNextOrderNumber();
 
@@ -841,6 +847,21 @@ export async function createOrder(
           message:
             error.message,
         });
+
+      return;
+    }
+
+    if (
+      error instanceof
+      OrderInventoryError
+    ) {
+      response.status(
+        error.statusCode,
+      ).json({
+        success: false,
+        message:
+          error.message,
+      });
 
       return;
     }
@@ -1093,6 +1114,7 @@ export async function updateOrderStatus(
       const result =
         await confirmOrderWithInventory(
           orderId,
+          response.locals.admin,
         );
 
       response
@@ -1112,80 +1134,35 @@ export async function updateOrderStatus(
       return;
     }
 
-    const order =
-      await Order.findOneAndUpdate(
-        {
-          _id:
-            orderId,
-          status:
-            "pending",
-        },
-        {
-          $set: {
-            status:
-              "cancelled",
-          },
-        },
-        {
-          new:
-            true,
-        },
+    const restoreInventory =
+      request.body
+        .restoreInventory === true;
+
+    const reason =
+      getString(
+        request.body.reason,
       );
 
-    if (!order) {
-      const existingOrder =
-        await Order.findById(
-          orderId,
-        );
-
-      if (!existingOrder) {
-        response
-          .status(404)
-          .json({
-            success: false,
-            message:
-              "El pedido solicitado no existe.",
-          });
-
-        return;
-      }
-
-      if (
-        existingOrder.status ===
-        "cancelled"
-      ) {
-        response
-          .status(200)
-          .json({
-            success: true,
-            message:
-              "El pedido ya estaba cancelado.",
-            data:
-              existingOrder.toObject(),
-          });
-
-        return;
-      }
-
-      response
-        .status(409)
-        .json({
-          success: false,
-          message:
-            "Un pedido confirmado o cancelado no puede volver a modificarse.",
-        });
-
-      return;
-    }
+    const result =
+      await cancelOrderWithInventory(
+        orderId,
+        restoreInventory,
+        reason,
+        response.locals.admin,
+      );
 
     response
       .status(200)
       .json({
         success: true,
         message:
-          "Pedido cancelado correctamente.",
+          result.alreadyCancelled
+            ? "El pedido ya estaba cancelado."
+            : result.inventoryRestored
+              ? "Pedido cancelado y stock reintegrado correctamente."
+              : "Pedido cancelado. El consumo se mantuvo porque los insumos ya se utilizaron o no habían sido descontados.",
         data:
-          order.toObject(),
+          result.order.toObject(),
       });
   } catch (error) {
     if (

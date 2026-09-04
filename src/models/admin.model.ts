@@ -8,7 +8,17 @@ import {
 ======================================== */
 
 export type AdminRole =
+  | "owner"
+  | "manager"
   | "admin";
+
+export function normalizeAdminRole(
+  role: AdminRole,
+): Exclude<AdminRole, "admin"> {
+  return role === "manager"
+    ? "manager"
+    : "owner";
+}
 
 /* ========================================
    SCHEMA
@@ -33,8 +43,12 @@ const adminSchema =
 
       role: {
         type: String,
-        enum: ["admin"],
-        default: "admin",
+        enum: [
+          "owner",
+          "manager",
+          "admin",
+        ],
+        default: "manager",
       },
 
       active: {

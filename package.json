@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "test": "node --import tsx --test src/services/orderInventory.test.ts",
     "start": "node dist/server.js",
     "seed": "tsx src/scripts/seedProducts.ts",
     "seed:admin": "tsx src/scripts/seedAdmin.ts"

@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { authRouter } from "./routes/auth.routes";
+import { adminUserRouter } from "./routes/adminUser.routes";
 import { categoryRouter } from "./routes/category.routes";
 import { healthRouter } from "./routes/health.routes";
 import { inventoryRouter } from "./routes/inventory.routes";
@@ -155,6 +156,11 @@ app.use(
 app.use(
   "/api/auth",
   authRouter,
+);
+
+app.use(
+  "/api/admin-users",
+  adminUserRouter,
 );
 
 app.use(

@@ -11,6 +11,10 @@ import {
 } from "../models/productRecipe.model";
 
 import {
+  Product,
+} from "../models/product.model";
+
+import {
   StoreSettings,
 } from "../models/storeSettings.model";
 
@@ -23,6 +27,8 @@ export type InventoryTrackingStatus = {
   readyToEnable: boolean;
   activeIngredients: number;
   configuredRecipes: number;
+  activeProducts: number;
+  issues: string[];
 };
 
 /* ========================================
@@ -88,7 +94,8 @@ export async function getInventoryTrackingStatus():
   const [
     enabled,
     activeIngredients,
-    configuredRecipes,
+    products,
+    recipes,
   ] =
     await Promise.all([
       isInventoryTrackingEnabled(),
@@ -97,23 +104,142 @@ export async function getInventoryTrackingStatus():
         active: true,
       }),
 
-      ProductRecipe.countDocuments({
+      Product.find({
+        active: true,
+      })
+        .select(
+          "_id legacyId name choiceGroups",
+        )
+        .lean(),
+
+      ProductRecipe.find({
         active: true,
         "baseItems.0": {
           $exists: true,
         },
-      }),
+      })
+        .select(
+          "product baseItems choiceModifiers",
+        )
+        .lean(),
     ]);
+
+  const recipesByProduct =
+    new Map(
+      recipes.map(
+        (recipe) => [
+          recipe.product.toString(),
+          recipe,
+        ],
+      ),
+    );
+
+  const productsByLegacyId =
+    new Map(
+      products
+        .filter(
+          (product) =>
+            product.legacyId !==
+            undefined,
+        )
+        .map(
+          (product) => [
+            product.legacyId as number,
+            product,
+          ] as const,
+        ),
+    );
+
+  const issues:
+    string[] = [];
+
+  for (const product of products) {
+    const recipe =
+      recipesByProduct.get(
+        product._id.toString(),
+      );
+
+    if (!recipe) {
+      issues.push(
+        `${product.name}: falta una receta activa con insumos base.`,
+      );
+
+      continue;
+    }
+
+    const choiceKeys =
+      new Set(
+        (
+          recipe.choiceModifiers ??
+          []
+        )
+          .filter(
+            (modifier) =>
+              modifier.items.length >
+              0,
+          )
+          .map(
+            (modifier) =>
+              `${modifier.groupId}:${modifier.optionId}`,
+          ),
+      );
+
+    for (
+      const group of
+      product.choiceGroups
+    ) {
+      for (const option of group.options) {
+        if (
+          option.productLegacyId
+        ) {
+          const linkedProduct =
+            productsByLegacyId.get(
+              option.productLegacyId,
+            );
+
+          if (
+            !linkedProduct ||
+            !recipesByProduct.has(
+              linkedProduct._id.toString(),
+            )
+          ) {
+            issues.push(
+              `${product.name} - ${group.label} / ${option.label}: falta la receta del producto vinculado.`,
+            );
+          }
+
+          continue;
+        }
+
+        if (
+          !choiceKeys.has(
+            `${group.id}:${option.id}`,
+          )
+        ) {
+          issues.push(
+            `${product.name} - ${group.label} / ${option.label}: falta indicar qué insumo consume esta opción.`,
+          );
+        }
+      }
+    }
+  }
+
+  const configuredRecipes =
+    recipes.length;
 
   return {
     enabled,
 
     readyToEnable:
       activeIngredients > 0 &&
-      configuredRecipes > 0,
+      products.length > 0 &&
+      issues.length === 0,
 
     activeIngredients,
     configuredRecipes,
+    activeProducts:
+      products.length,
+    issues,
   };
 }
 
@@ -134,7 +260,8 @@ export async function updateInventoryTrackingEnabled(
     ) {
       throw new InventoryTrackingSettingsError(
         409,
-        "Antes de activar el descuento automático, cargá al menos un insumo activo y una receta activa.",
+        currentStatus.issues[0] ??
+          "Antes de activar el descuento automático, completá los insumos y las recetas de todos los productos activos.",
       );
     }
   }

@@ -8,6 +8,20 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 
 import { Admin } from "../models/admin.model";
+import {
+  normalizeAdminRole,
+  type AdminRole,
+} from "../models/admin.model";
+
+function isAdminRole(
+  value: unknown,
+): value is AdminRole {
+  return (
+    value === "owner" ||
+    value === "manager" ||
+    value === "admin"
+  );
+}
 
 /* ========================================
    MIDDLEWARE REQUIRE ADMIN
@@ -106,7 +120,7 @@ export async function requireAdmin(
     if (
       typeof adminId !==
         "string" ||
-      role !== "admin" ||
+      !isAdminRole(role) ||
       !mongoose.Types.ObjectId.isValid(
         adminId,
       )
@@ -150,7 +164,9 @@ export async function requireAdmin(
       email:
         admin.email,
       role:
-        admin.role,
+        normalizeAdminRole(
+          admin.role,
+        ),
     };
 
     next();
@@ -192,4 +208,28 @@ export async function requireAdmin(
         "Ocurrió un error verificando la autenticación.",
     });
   }
+}
+
+export function requireOwner(
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): void {
+  const admin =
+    response.locals.admin;
+
+  if (
+    !admin ||
+    admin.role !== "owner"
+  ) {
+    response.status(403).json({
+      success: false,
+      message:
+        "Esta acción requiere permisos del dueño.",
+    });
+
+    return;
+  }
+
+  next();
 }

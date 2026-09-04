@@ -8,6 +8,9 @@ import type {
 import jwt from "jsonwebtoken";
 
 import { Admin } from "../models/admin.model";
+import {
+  normalizeAdminRole,
+} from "../models/admin.model";
 
 /* ========================================
    LOGIN ADMIN
@@ -106,7 +109,9 @@ export async function loginAdmin(
           adminId:
             admin._id.toString(),
           role:
-            admin.role,
+            normalizeAdminRole(
+              admin.role,
+            ),
         },
         jwtSecret,
         {
@@ -131,7 +136,9 @@ export async function loginAdmin(
         email:
           admin.email,
         role:
-          admin.role,
+          normalizeAdminRole(
+            admin.role,
+          ),
       },
     });
   } catch (error) {
@@ -144,6 +151,100 @@ export async function loginAdmin(
       success: false,
       message:
         "Ocurrió un error al iniciar sesión.",
+    });
+  }
+}
+
+/* ========================================
+   CAMBIAR CONTRASEÑA PROPIA
+======================================== */
+
+export async function changeOwnPassword(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const currentPassword =
+      request.body
+        ?.currentPassword;
+
+    const newPassword =
+      request.body
+        ?.newPassword;
+
+    if (
+      typeof currentPassword !==
+        "string" ||
+      typeof newPassword !==
+        "string" ||
+      newPassword.length < 10
+    ) {
+      response.status(400).json({
+        success: false,
+        message:
+          "La contraseña actual es obligatoria y la nueva debe tener al menos 10 caracteres.",
+      });
+
+      return;
+    }
+
+    const currentAdmin =
+      response.locals.admin;
+
+    const admin =
+      await Admin.findById(
+        currentAdmin?.id,
+      ).select("+password");
+
+    if (!admin) {
+      response.status(401).json({
+        success: false,
+        message:
+          "La sesión ya no es válida.",
+      });
+
+      return;
+    }
+
+    const matches =
+      await bcrypt.compare(
+        currentPassword,
+        admin.password,
+      );
+
+    if (!matches) {
+      response.status(400).json({
+        success: false,
+        message:
+          "La contraseña actual no es correcta.",
+      });
+
+      return;
+    }
+
+    admin.password =
+      await bcrypt.hash(
+        newPassword,
+        12,
+      );
+
+    await admin.save();
+
+    response.status(200).json({
+      success: true,
+      message:
+        "Contraseña actualizada correctamente.",
+    });
+  } catch (error) {
+    console.error(
+      "Error cambiando contraseña:",
+      error,
+    );
+
+    response.status(500).json({
+      success: false,
+      message:
+        "No se pudo cambiar la contraseña.",
     });
   }
 }

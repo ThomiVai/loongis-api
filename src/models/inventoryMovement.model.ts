@@ -9,13 +9,25 @@ export type InventoryMovementType =
   | "restock"
   | "waste"
   | "adjustment"
-  | "sale";
+  | "sale"
+  | "reversal";
+
+export interface InventoryLotConsumption {
+  lot: Types.ObjectId;
+  quantity: number;
+}
 
 export interface InventoryMovementDocument {
   ingredient: Types.ObjectId;
 
   order?: Types.ObjectId;
   orderNumber?: number;
+
+  purchase?: Types.ObjectId;
+  inventoryCount?: Types.ObjectId;
+
+  performedBy?: Types.ObjectId;
+  performedByEmail?: string;
 
   type: InventoryMovementType;
 
@@ -27,6 +39,9 @@ export interface InventoryMovementDocument {
   estimatedCost: number;
 
   note?: string;
+
+  lotConsumptions:
+    InventoryLotConsumption[];
 }
 
 const inventoryMovementSchema =
@@ -53,6 +68,34 @@ const inventoryMovementSchema =
         index: true,
       },
 
+      purchase: {
+        type: Schema.Types.ObjectId,
+        ref: "InventoryPurchase",
+        required: false,
+        index: true,
+      },
+
+      inventoryCount: {
+        type: Schema.Types.ObjectId,
+        ref: "InventoryCount",
+        required: false,
+        index: true,
+      },
+
+      performedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "Admin",
+        required: false,
+        index: true,
+      },
+
+      performedByEmail: {
+        type: String,
+        trim: true,
+        lowercase: true,
+        required: false,
+      },
+
       type: {
         type: String,
         required: true,
@@ -62,6 +105,7 @@ const inventoryMovementSchema =
           "waste",
           "adjustment",
           "sale",
+          "reversal",
         ],
         index: true,
       },
@@ -101,6 +145,29 @@ const inventoryMovementSchema =
         type: String,
         trim: true,
         maxlength: 300,
+      },
+
+      lotConsumptions: {
+        type: [
+          new Schema<InventoryLotConsumption>(
+            {
+              lot: {
+                type: Schema.Types.ObjectId,
+                ref: "InventoryLot",
+                required: true,
+              },
+              quantity: {
+                type: Number,
+                required: true,
+                min: 0.000001,
+              },
+            },
+            {
+              _id: false,
+            },
+          ),
+        ],
+        default: [],
       },
     },
     {

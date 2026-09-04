@@ -40,6 +40,12 @@ export interface RecipeOptionModifier {
   items: RecipeModifierItem[];
 }
 
+export interface RecipeChoiceModifier {
+  groupId: string;
+  optionId: string;
+  items: RecipeModifierItem[];
+}
+
 export interface ProductRecipeDocument {
   product: Types.ObjectId;
 
@@ -50,6 +56,9 @@ export interface ProductRecipeDocument {
 
   extraModifiers:
     RecipeOptionModifier[];
+
+  choiceModifiers:
+    RecipeChoiceModifier[];
 
   active: boolean;
 }
@@ -159,6 +168,31 @@ const recipeOptionModifierSchema =
     },
   );
 
+const recipeChoiceModifierSchema =
+  new Schema<RecipeChoiceModifier>(
+    {
+      groupId: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      optionId: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      items: {
+        type: [
+          recipeModifierItemSchema,
+        ],
+        default: [],
+      },
+    },
+    {
+      _id: false,
+    },
+  );
+
 /* ========================================
    RECETA
 ======================================== */
@@ -208,6 +242,13 @@ const productRecipeSchema =
 
         default:
           [],
+      },
+
+      choiceModifiers: {
+        type: [
+          recipeChoiceModifierSchema,
+        ],
+        default: [],
       },
 
       active: {

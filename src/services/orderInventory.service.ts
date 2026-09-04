@@ -11,6 +11,10 @@ import {
   InventoryMovement,
 } from "../models/inventoryMovement.model";
 
+import type {
+  InventoryLotConsumption,
+} from "../models/inventoryMovement.model";
+
 import {
   Order,
   type OrderDocument,
@@ -29,6 +33,12 @@ import {
   isInventoryTrackingEnabled,
 } from "./inventoryTracking.service";
 
+import {
+  consumeInventoryLots,
+  createInventoryLot,
+  restoreInventoryLots,
+} from "./inventoryLot.service";
+
 /* ========================================
    TIPOS
 ======================================== */
@@ -37,6 +47,10 @@ export type RecipeSelection = {
   sizeId?: string;
   extraIds?: string[];
   removedIngredients?: string[];
+  choiceSelections?: Array<{
+    groupId: string;
+    optionId: string;
+  }>;
 };
 
 export type IngredientRequirements =
@@ -47,6 +61,18 @@ type ConfirmedOrderResult = {
     HydratedDocument<OrderDocument>;
   alreadyConfirmed: boolean;
   inventorySkipped: boolean;
+};
+
+export type InventoryActor = {
+  id: string;
+  email: string;
+};
+
+export type CancelledOrderResult = {
+  order:
+    HydratedDocument<OrderDocument>;
+  alreadyCancelled: boolean;
+  inventoryRestored: boolean;
 };
 
 /* ========================================
@@ -134,6 +160,7 @@ export function addRecipeConsumption(
       | "baseItems"
       | "sizeModifiers"
       | "extraModifiers"
+      | "choiceModifiers"
     >,
   selection:
     RecipeSelection,
@@ -177,6 +204,41 @@ export function addRecipeConsumption(
       ingredientId,
       item.quantity,
     );
+  }
+
+  const selectedChoiceKeys =
+    new Set(
+      (
+        selection
+          .choiceSelections ?? []
+      ).map(
+        (choice) =>
+          `${choice.groupId}:${choice.optionId}`,
+      ),
+    );
+
+  for (
+    const modifier of
+    recipe.choiceModifiers ?? []
+  ) {
+    if (
+      !selectedChoiceKeys.has(
+        `${modifier.groupId}:${modifier.optionId}`,
+      )
+    ) {
+      continue;
+    }
+
+    for (
+      const item of
+      modifier.items
+    ) {
+      addQuantity(
+        localConsumption,
+        item.ingredient.toString(),
+        item.quantity,
+      );
+    }
   }
 
   const sizeModifier =
@@ -285,9 +347,12 @@ export function addRecipeConsumption(
 
 async function getOrderRequirements(
   order:
-    HydratedDocument<OrderDocument>,
+    Pick<
+      OrderDocument,
+      "items"
+    >,
   session:
-    ClientSession,
+    ClientSession | undefined,
 ): Promise<IngredientRequirements> {
   const linkedLegacyIds =
     new Set<number>();
@@ -309,9 +374,8 @@ async function getOrderRequirements(
     }
   }
 
-  const linkedProducts =
-    linkedLegacyIds.size > 0
-      ? await Product.find({
+  let linkedProductsQuery =
+    Product.find({
           legacyId: {
             $in: [
               ...linkedLegacyIds,
@@ -320,9 +384,18 @@ async function getOrderRequirements(
         })
           .select(
             "_id legacyId name",
-          )
-          .session(session)
-          .lean()
+          );
+
+  if (session) {
+    linkedProductsQuery =
+      linkedProductsQuery.session(
+        session,
+      );
+  }
+
+  const linkedProducts =
+    linkedLegacyIds.size > 0
+      ? await linkedProductsQuery.lean()
       : [];
 
   const linkedProductsByLegacyId =
@@ -361,8 +434,8 @@ async function getOrderRequirements(
     );
   }
 
-  const recipes =
-    await ProductRecipe.find({
+  let recipesQuery =
+    ProductRecipe.find({
       product: {
         $in: [
           ...recipeProductIds,
@@ -371,8 +444,17 @@ async function getOrderRequirements(
 
       active:
         true,
-    })
-      .session(session);
+    });
+
+  if (session) {
+    recipesQuery =
+      recipesQuery.session(
+        session,
+      );
+  }
+
+  const recipes =
+    await recipesQuery;
 
   const recipesByProductId =
     new Map(
@@ -429,6 +511,23 @@ async function getOrderRequirements(
           removedIngredients:
             item.customization
               .removedIngredients,
+
+          choiceSelections:
+            item.customization
+              .choices
+              .filter(
+                (choice) =>
+                  !choice
+                    .productLegacyId,
+              )
+              .map(
+                (choice) => ({
+                  groupId:
+                    choice.groupId,
+                  optionId:
+                    choice.optionId,
+                }),
+              ),
         },
         item.quantity,
       );
@@ -538,6 +637,7 @@ async function consumeRequirements(
     IngredientRequirements,
   session:
     ClientSession,
+  actor?: InventoryActor,
 ): Promise<void> {
   const ingredientIds = [
     ...requirements.keys(),
@@ -636,6 +736,11 @@ async function consumeRequirements(
       unitCost: number;
       estimatedCost: number;
       note: string;
+      performedBy?:
+        mongoose.Types.ObjectId;
+      performedByEmail?: string;
+      lotConsumptions:
+        InventoryLotConsumption[];
     }> = [];
 
   for (
@@ -688,6 +793,15 @@ async function consumeRequirements(
           requiredQuantity,
       );
 
+    const lotConsumptions =
+      await consumeInventoryLots(
+        previousIngredient._id,
+        requiredQuantity,
+        previousIngredient.stock,
+        previousIngredient.unitCost,
+        session,
+      );
+
     movements.push({
       ingredient:
         previousIngredient._id,
@@ -720,6 +834,18 @@ async function consumeRequirements(
 
       note:
         `Pedido #${order.orderNumber}`,
+
+      performedBy:
+        actor
+          ? new mongoose.Types.ObjectId(
+              actor.id,
+            )
+          : undefined,
+
+      performedByEmail:
+        actor?.email,
+
+      lotConsumptions,
     });
   }
 
@@ -737,6 +863,7 @@ async function consumeRequirements(
 
 export async function confirmOrderWithInventory(
   orderId: string,
+  actor?: InventoryActor,
 ): Promise<ConfirmedOrderResult> {
   const session =
     await mongoose.startSession();
@@ -826,6 +953,7 @@ export async function confirmOrderWithInventory(
           order,
           requirements,
           session,
+          actor,
         );
 
         order.status =
@@ -857,6 +985,294 @@ export async function confirmOrderWithInventory(
   if (!result) {
     throw new Error(
       "La transacción de confirmación no devolvió un resultado.",
+    );
+  }
+
+  return result;
+}
+
+/* ========================================
+   VALIDAR UN PEDIDO ANTES DE GUARDARLO
+======================================== */
+
+export async function assertOrderInventoryAvailable(
+  items: OrderDocument["items"],
+): Promise<void> {
+  if (
+    !await isInventoryTrackingEnabled()
+  ) {
+    return;
+  }
+
+  const requirements =
+    await getOrderRequirements(
+      {
+        items,
+      },
+      undefined,
+    );
+
+  const ingredients =
+    await Ingredient.find({
+      _id: {
+        $in: [
+          ...requirements.keys(),
+        ],
+      },
+    }).lean();
+
+  const byId =
+    new Map(
+      ingredients.map(
+        (ingredient) => [
+          ingredient._id.toString(),
+          ingredient,
+        ],
+      ),
+    );
+
+  const unavailable:
+    string[] = [];
+
+  for (
+    const [
+      ingredientId,
+      quantity,
+    ] of requirements
+  ) {
+    const ingredient =
+      byId.get(
+        ingredientId,
+      );
+
+    if (
+      !ingredient ||
+      !ingredient.active ||
+      ingredient.stock +
+          quantityTolerance <
+        quantity
+    ) {
+      unavailable.push(
+        ingredient?.name ??
+          "un insumo necesario",
+      );
+    }
+  }
+
+  if (unavailable.length > 0) {
+    throw new OrderInventoryError(
+      409,
+      `El pedido ya no está disponible por falta de stock: ${unavailable.join(", ")}. Actualizá el carrito o consultá con el local.`,
+    );
+  }
+}
+
+/* ========================================
+   CANCELAR Y, SI CORRESPONDE, REINTEGRAR
+======================================== */
+
+export async function cancelOrderWithInventory(
+  orderId: string,
+  restoreInventory: boolean,
+  reason: string | undefined,
+  actor?: InventoryActor,
+): Promise<CancelledOrderResult> {
+  const session =
+    await mongoose.startSession();
+
+  let result:
+    CancelledOrderResult | null =
+    null;
+
+  try {
+    await session.withTransaction(
+      async () => {
+        const order =
+          await Order.findById(
+            orderId,
+          ).session(session);
+
+        if (!order) {
+          throw new OrderInventoryError(
+            404,
+            "El pedido solicitado no existe.",
+          );
+        }
+
+        if (
+          order.status ===
+          "cancelled"
+        ) {
+          result = {
+            order,
+            alreadyCancelled: true,
+            inventoryRestored:
+              order.inventoryTrackingStatus ===
+              "reversed",
+          };
+
+          return;
+        }
+
+        let inventoryRestored =
+          false;
+
+        if (
+          order.status ===
+            "confirmed" &&
+          order.inventoryTrackingStatus ===
+            "deducted"
+        ) {
+          if (restoreInventory) {
+            const sales =
+              await InventoryMovement.find({
+                order:
+                  order._id,
+                type:
+                  "sale",
+              }).session(session);
+
+            if (sales.length === 0) {
+              throw new OrderInventoryError(
+                409,
+                "No se encontraron los movimientos originales del pedido. No se modificó el stock.",
+              );
+            }
+
+            for (const sale of sales) {
+              const quantity =
+                Math.abs(
+                  sale.change,
+                );
+
+              const previousIngredient =
+                await Ingredient.findByIdAndUpdate(
+                  sale.ingredient,
+                  {
+                    $inc: {
+                      stock:
+                        quantity,
+                    },
+                  },
+                  {
+                    new: false,
+                    session,
+                    runValidators: true,
+                  },
+                );
+
+              if (!previousIngredient) {
+                throw new OrderInventoryError(
+                  409,
+                  "No se pudo reintegrar uno de los insumos del pedido.",
+                );
+              }
+
+              if (
+                sale.lotConsumptions
+                  .length > 0
+              ) {
+                await restoreInventoryLots(
+                  sale.lotConsumptions,
+                  session,
+                );
+              } else {
+                await createInventoryLot(
+                  {
+                    ingredient:
+                      sale.ingredient,
+                    quantity,
+                    unitCost:
+                      sale.unitCost,
+                    source:
+                      "reversal",
+                  },
+                  session,
+                );
+              }
+
+              await InventoryMovement.create(
+                [
+                  {
+                    ingredient:
+                      sale.ingredient,
+                    order:
+                      order._id,
+                    orderNumber:
+                      order.orderNumber,
+                    type:
+                      "reversal",
+                    change:
+                      quantity,
+                    previousStock:
+                      previousIngredient.stock,
+                    newStock:
+                      normalizeQuantity(
+                        previousIngredient.stock +
+                          quantity,
+                      ),
+                    unitCost:
+                      sale.unitCost,
+                    estimatedCost:
+                      sale.estimatedCost,
+                    note:
+                      reason ||
+                      `Reintegro del pedido #${order.orderNumber}`,
+                    performedBy:
+                      actor
+                        ? new mongoose.Types.ObjectId(
+                            actor.id,
+                          )
+                        : undefined,
+                    performedByEmail:
+                      actor?.email,
+                    lotConsumptions:
+                      sale.lotConsumptions,
+                  },
+                ],
+                {
+                  session,
+                },
+              );
+            }
+
+            inventoryRestored =
+              true;
+            order.inventoryTrackingStatus =
+              "reversed";
+            order.inventoryReversedAt =
+              new Date();
+          } else {
+            order.inventoryTrackingStatus =
+              "kept_as_waste";
+          }
+        }
+
+        order.status =
+          "cancelled";
+        order.cancelledAt =
+          new Date();
+        order.cancellationReason =
+          reason;
+
+        await order.save({
+          session,
+        });
+
+        result = {
+          order,
+          alreadyCancelled: false,
+          inventoryRestored,
+        };
+      },
+    );
+  } finally {
+    await session.endSession();
+  }
+
+  if (!result) {
+    throw new Error(
+      "La cancelación no devolvió un resultado.",
     );
   }
 
