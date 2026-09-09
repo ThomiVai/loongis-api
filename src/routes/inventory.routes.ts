@@ -1,3 +1,5 @@
+import { importIngredients, updateIngredientsBatch } from "../controllers/ingredientBatch.controller";
+import { getPurchaseTemplates, savePurchaseTemplate, deletePurchaseTemplate } from "../controllers/purchaseTemplate.controller";
 import {
   Router,
 } from "express";
@@ -141,3 +143,9 @@ inventoryRouter.get(
   requireOwner,
   getInventoryReport,
 );
+
+inventoryRouter.post("/ingredients/import", requireAdmin, requireOwner, importIngredients);
+inventoryRouter.patch("/ingredients/batch", requireAdmin, requireOwner, updateIngredientsBatch);
+inventoryRouter.get("/purchase-templates", requireAdmin, getPurchaseTemplates);
+inventoryRouter.post("/purchase-templates", requireAdmin, savePurchaseTemplate);
+inventoryRouter.delete("/purchase-templates/:id", requireAdmin, requireOwner, deletePurchaseTemplate);

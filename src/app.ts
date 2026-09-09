@@ -84,7 +84,7 @@ app.use(
 ======================================== */
 
 app.use(
-  express.json(),
+  express.json({limit: "1mb"}),
 );
 
 app.use(
