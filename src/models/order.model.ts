@@ -72,6 +72,8 @@ export interface OrderItemSnapshot {
 }
 
 export interface OrderDocument {
+  requestKey?: string;
+  requestHash?: string;
   orderNumber: number;
 
   customer:
@@ -289,6 +291,8 @@ const orderItemSchema =
 const orderSchema =
   new Schema<OrderDocument>(
     {
+      requestKey: {type: String, unique: true, sparse: true, select: false},
+      requestHash: {type: String, select: false},
       orderNumber: {
         type: Number,
         required: true,

@@ -1,3 +1,4 @@
+import { orderRequestHash, validRequestKey } from "../services/orderIdempotency";
 import type {
   Request,
   Response,
@@ -182,7 +183,23 @@ export async function createOrder(
   request: Request,
   response: Response,
 ): Promise<void> {
+  let requestKey: string | undefined;
+  let requestHash: string | undefined;
+  const returnExisting = async (): Promise<boolean> => {
+    if (!requestKey) return false;
+    const existing = await Order.findOne({requestKey}).select("+requestHash");
+    if (!existing) return false;
+    if (existing.requestHash !== requestHash) throw new OrderRequestError(409,"Este intento corresponde a otro pedido. Volvé al carrito y revisá los datos.");
+    const data = existing.toObject(); delete data.requestHash;
+    response.status(200).json({success:true,data,message:"Pedido ya registrado."});
+    return true;
+  };
   try {
+    if (isObject(request.body) && request.body.requestKey !== undefined) {
+      if (!validRequestKey(request.body.requestKey)) throw new OrderRequestError(400,"Identificador de pedido inválido.");
+      requestKey = request.body.requestKey; requestHash = orderRequestHash(request.body);
+      if (await returnExisting()) return;
+    }
     const storeStatus =
       await getStoreStatus();
 
@@ -787,6 +804,8 @@ export async function createOrder(
 
     const order =
       await Order.create({
+        requestKey,
+        requestHash,
         orderNumber,
 
         customer: {
@@ -831,9 +850,12 @@ export async function createOrder(
           "Pedido registrado correctamente.",
 
         data:
-          order.toObject(),
+          { ...order.toObject(), requestKey: undefined, requestHash: undefined },
       });
   } catch (error) {
+    if ((error as {code?:number})?.code === 11000 && requestKey) {
+      try { if (await returnExisting()) return; } catch (retryError) { error = retryError; }
+    }
     if (
       error instanceof
       OrderRequestError
