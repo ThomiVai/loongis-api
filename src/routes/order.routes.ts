@@ -1,3 +1,4 @@
+import { getSalesReport } from "../controllers/salesReport.controller";
 import {
   Router,
 } from "express";
@@ -34,6 +35,8 @@ orderRouter.get(
   requireAdmin,
   getOrders,
 );
+
+orderRouter.get("/sales", requireAdmin, getSalesReport);
 
 orderRouter.get(
   "/:id",

@@ -72,5 +72,20 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
    assert.equal((await call(`/api/orders/${id}/status`,'PATCH',{status:'cancelled',restoreInventory:true},managerToken)).status,200);assert.equal((await Ingredient.findById(pan.id))!.stock,34);
    assert.equal((await call(`/api/orders/${id}/status`,'PATCH',{status:'cancelled',restoreInventory:true},managerToken)).status,200);assert.equal((await Ingredient.findById(pan.id))!.stock,34);
   });
+  await t.test('ventas excluye pendientes y cancelados, respeta límites argentinos y no suma envío',async()=>{
+   assert.equal((await call('/api/orders/sales?from=2026-01-01&to=2026-01-02','GET',undefined,'')).status,401);
+   assert.equal((await call('/api/orders/sales?from=2026-02-30&to=2026-03-01')).status,400);
+   await Order.collection.insertMany([
+    {createdAt:new Date('2026-01-01T02:59:59Z'),status:'confirmed',productsTotal:999},
+    {createdAt:new Date('2026-01-01T03:00:00Z'),status:'confirmed',productsTotal:1000,total:1500},
+    {createdAt:new Date('2026-01-02T02:59:59Z'),status:'confirmed',productsTotal:2000,total:2500},
+    {createdAt:new Date('2026-01-02T03:00:00Z'),status:'pending',productsTotal:9000},
+    {createdAt:new Date('2026-01-02T04:00:00Z'),status:'cancelled',productsTotal:9000},
+    {createdAt:new Date('2026-01-03T03:00:00Z'),status:'confirmed',productsTotal:999},
+   ].map((item,index)=>({...item,orderNumber:9000+index})));
+   const report=await call('/api/orders/sales?from=2026-01-01&to=2026-01-02');
+   assert.equal(report.status,200);assert.equal(report.data.sales,3000);assert.equal(report.data.orders,2);assert.equal(report.data.averageTicket,1500);
+   assert.deepEqual(report.data.days,[{date:'2026-01-01',sales:3000,orders:2},{date:'2026-01-02',sales:0,orders:0}]);
+  });
  }finally{if(server)await new Promise<void>(resolve=>server!.close(()=>resolve()));await mongoose.disconnect();await mongo.stop();}
 });
