@@ -168,8 +168,7 @@ export async function getProductImage(
 
   const image =
     await ProductImage.findById(imageId)
-      .select("+data contentType size")
-      .lean();
+      .select("+data contentType size");
 
   if (!image) {
     response.status(404).end();
@@ -184,7 +183,9 @@ export async function getProductImage(
     "Cross-Origin-Resource-Policy":
       "cross-origin",
   });
-  response.status(200).end(image.data);
+  response.status(200).end(
+    Buffer.from(image.data),
+  );
 }
 
 export async function deleteProductImage(

@@ -30,7 +30,7 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
   server=app.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();assert.ok(address&&typeof address!=='string');const base=`http://127.0.0.1:${address.port}`;
   async function call(path:string,method='GET',body?:unknown,auth=ownerToken){const r=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(auth?{Authorization:`Bearer ${auth}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,...await r.json() as {data:any;message?:string}};}
   async function rawCall(path:string,body:Uint8Array,contentType:string,auth=ownerToken){const r=await fetch(base+path,{method:'POST',headers:{'Content-Type':contentType,'X-File-Name':encodeURIComponent('hamburguesa.png'),...(auth?{Authorization:`Bearer ${auth}`}:{})},body:Buffer.from(body)});return {status:r.status,...await r.json() as {data:any;message?:string}};}
-  async function download(path:string,auth=ownerToken){const r=await fetch(base+path,{headers:auth?{Authorization:`Bearer ${auth}`}:{}});return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),text:await r.text()};}
+  async function download(path:string,auth=ownerToken){const r=await fetch(base+path,{headers:auth?{Authorization:`Bearer ${auth}`}:{}});const bytes=new Uint8Array(await r.arrayBuffer());return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),hasBom:bytes[0]===0xef&&bytes[1]===0xbb&&bytes[2]===0xbf,text:new TextDecoder().decode(bytes)};}
   const row=(name:string,stock=10)=>({name,unit:'unit',stock,minimumStock:2,targetStock:20,unitCost:100,purchaseUnitFactor:12,purchaseUnitLabel:'Caja',category:'Prueba',storageLocation:'Depósito',trackExpiration:false});
   await t.test('permisos, importación y rechazo de duplicados sin escrituras parciales',async()=>{
    assert.equal((await call('/api/inventory/ingredients/import','POST',{rows:[row('Pan')]},managerToken)).status,403);
@@ -101,7 +101,7 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
   });
   await t.test('exportaciones entregan CSV completos solo al dueño',async()=>{
    assert.equal((await download('/api/exports/orders.csv',managerToken)).status,403);
-   for(const dataset of ['orders','sales','purchases','movements']){const exported=await download(`/api/exports/${dataset}.csv`);assert.equal(exported.status,200);assert.match(exported.type??'',/^text\/csv/);assert.match(exported.disposition??'',/attachment/);assert.ok(exported.text.startsWith('\uFEFF"'));}
+   for(const dataset of ['orders','sales','purchases','movements']){const exported=await download(`/api/exports/${dataset}.csv`);assert.equal(exported.status,200);assert.match(exported.type??'',/^text\/csv/);assert.match(exported.disposition??'',/attachment/);assert.ok(exported.hasBom);assert.ok(exported.text.startsWith('"'));}
   });
   await t.test('reinicio seguro pone existencias en cero y conserva trazabilidad',async()=>{
    assert.equal((await call('/api/inventory/reset-stock','POST',{confirmation:'REINICIAR'},managerToken)).status,403);
