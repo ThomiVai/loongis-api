@@ -24,6 +24,7 @@ import {
   getPublicAvailability,
   getPurchases,
   getSuppliers,
+  resetInventoryStock,
   updateSupplier,
 } from "../controllers/inventoryOperations.controller";
 
@@ -129,6 +130,13 @@ inventoryRouter.post(
   "/counts",
   requireAdmin,
   createInventoryCount,
+);
+
+inventoryRouter.post(
+  "/reset-stock",
+  requireAdmin,
+  requireOwner,
+  resetInventoryStock,
 );
 
 inventoryRouter.get(

@@ -6,6 +6,7 @@ import morgan from "morgan";
 import { authRouter } from "./routes/auth.routes";
 import { adminUserRouter } from "./routes/adminUser.routes";
 import { categoryRouter } from "./routes/category.routes";
+import { dataExportRouter } from "./routes/dataExport.routes";
 import { healthRouter } from "./routes/health.routes";
 import { inventoryRouter } from "./routes/inventory.routes";
 import { orderRouter } from "./routes/order.routes";
@@ -166,6 +167,11 @@ app.use(
 app.use(
   "/api/categories",
   categoryRouter,
+);
+
+app.use(
+  "/api/exports",
+  dataExportRouter,
 );
 
 app.use(
