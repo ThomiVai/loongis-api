@@ -18,6 +18,9 @@ export interface InventoryLotConsumption {
 }
 
 export interface InventoryMovementDocument {
+  createdAt: Date;
+  updatedAt: Date;
+
   ingredient: Types.ObjectId;
 
   order?: Types.ObjectId;

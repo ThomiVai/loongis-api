@@ -72,6 +72,9 @@ export interface OrderItemSnapshot {
 }
 
 export interface OrderDocument {
+  createdAt: Date;
+  updatedAt: Date;
+
   requestKey?: string;
   requestHash?: string;
   orderNumber: number;

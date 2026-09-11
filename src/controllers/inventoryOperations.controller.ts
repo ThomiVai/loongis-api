@@ -1105,6 +1105,69 @@ export async function createInventoryCount(
   }
 }
 
+/* ========================================
+   REINICIO SEGURO DE EXISTENCIAS
+======================================== */
+
+export async function resetInventoryStock(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  if (
+    request.body?.confirmation !==
+    "REINICIAR"
+  ) {
+    response.status(400).json({
+      success: false,
+      message:
+        "Escribí REINICIAR para confirmar la puesta en cero.",
+    });
+    return;
+  }
+
+  const ingredients =
+    await Ingredient.find({
+      active: true,
+    })
+      .select("_id")
+      .sort({
+        order: 1,
+        name: 1,
+      })
+      .lean();
+
+  if (ingredients.length === 0) {
+    response.status(400).json({
+      success: false,
+      message:
+        "No hay insumos activos para reiniciar.",
+    });
+    return;
+  }
+
+  request.body = {
+    countedAt:
+      new Date().toISOString(),
+    label:
+      "Reinicio de stock",
+    notes:
+      "Puesta en cero solicitada por el dueño. Se conservan productos, recetas, pedidos e historial.",
+    items:
+      ingredients.map(
+        (ingredient) => ({
+          ingredientId:
+            ingredient._id.toString(),
+          countedStock: 0,
+        }),
+      ),
+  };
+
+  await createInventoryCount(
+    request,
+    response,
+  );
+}
+
 export async function getInventoryCounts(
   _request: Request,
   response: Response,

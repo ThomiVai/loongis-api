@@ -10,9 +10,11 @@ import { Ingredient } from '../models/ingredient.model';
 import { InventoryMovement } from '../models/inventoryMovement.model';
 import { InventoryLot } from '../models/inventoryLot.model';
 import { Product } from '../models/product.model';
+import { ProductImage } from '../models/productImage.model';
 import { ProductRecipe } from '../models/productRecipe.model';
 import { StoreSettings } from '../models/storeSettings.model';
 import { Order } from '../models/order.model';
+import { InventoryCount } from '../models/inventoryCount.model';
 
 test('operaciones completas en MongoDB temporal, sin usar configuración de producción', {timeout:240000}, async t => {
  const mongo=await MongoMemoryReplSet.create({replSet:{count:1},binary:{version:'7.0.24'}});
@@ -27,6 +29,8 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
   const ownerToken=token(owner.id,'owner');const managerToken=token(manager.id,'manager');
   server=app.listen(0,'127.0.0.1');await once(server,'listening');const address=server.address();assert.ok(address&&typeof address!=='string');const base=`http://127.0.0.1:${address.port}`;
   async function call(path:string,method='GET',body?:unknown,auth=ownerToken){const r=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(auth?{Authorization:`Bearer ${auth}`}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,...await r.json() as {data:any;message?:string}};}
+  async function rawCall(path:string,body:Uint8Array,contentType:string,auth=ownerToken){const r=await fetch(base+path,{method:'POST',headers:{'Content-Type':contentType,'X-File-Name':encodeURIComponent('hamburguesa.png'),...(auth?{Authorization:`Bearer ${auth}`}:{})},body:Buffer.from(body)});return {status:r.status,...await r.json() as {data:any;message?:string}};}
+  async function download(path:string,auth=ownerToken){const r=await fetch(base+path,{headers:auth?{Authorization:`Bearer ${auth}`}:{}});return {status:r.status,type:r.headers.get('content-type'),disposition:r.headers.get('content-disposition'),text:await r.text()};}
   const row=(name:string,stock=10)=>({name,unit:'unit',stock,minimumStock:2,targetStock:20,unitCost:100,purchaseUnitFactor:12,purchaseUnitLabel:'Caja',category:'Prueba',storageLocation:'Depósito',trackExpiration:false});
   await t.test('permisos, importación y rechazo de duplicados sin escrituras parciales',async()=>{
    assert.equal((await call('/api/inventory/ingredients/import','POST',{rows:[row('Pan')]},managerToken)).status,403);
@@ -54,6 +58,14 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
    assert.equal((await call(`/api/inventory/purchase-templates/${habitual.data._id}`,'DELETE',undefined,managerToken)).status,403);
    const purchase=await call('/api/inventory/purchases','POST',{purchasedAt:new Date().toISOString(),lines:[{...line,totalCost:4800,batchNumber:'NUEVO'}]},managerToken);
    assert.equal(purchase.status,201,purchase.message ?? "Compra rechazada");const changed=(await Ingredient.findById(pan.id))!;assert.equal(changed.stock,34);assert.ok(Math.abs(changed.unitCost-5800/34)<.01);
+  });
+  await t.test('imágenes de productos se validan, persisten y se sirven públicamente',async()=>{
+   const png=Uint8Array.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+   assert.equal((await rawCall('/api/products/images',png,'image/png',managerToken)).status,403);
+   assert.equal((await rawCall('/api/products/images',Uint8Array.from([1,2,3]),'image/png')).status,400);
+   const uploaded=await rawCall('/api/products/images',png,'image/png');assert.equal(uploaded.status,201,uploaded.message ?? 'Imagen rechazada');assert.match(uploaded.data.url,/^\/api\/products\/images\/[a-f0-9]{24}$/);
+   assert.equal(await ProductImage.countDocuments(),1);
+   const response=await fetch(base+uploaded.data.url);assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'image/png');assert.deepEqual(new Uint8Array(await response.arrayBuffer()),png);
   });
   await t.test('pedido concurrente se registra una vez; confirma y reintegra una sola vez',async()=>{
    await StoreSettings.create({_id:'main',orderMode:'open',inventoryTrackingEnabled:true});
@@ -86,6 +98,16 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
    const report=await call('/api/orders/sales?from=2026-01-01&to=2026-01-02');
    assert.equal(report.status,200);assert.equal(report.data.sales,3000);assert.equal(report.data.orders,2);assert.equal(report.data.averageTicket,1500);
    assert.deepEqual(report.data.days,[{date:'2026-01-01',sales:3000,orders:2},{date:'2026-01-02',sales:0,orders:0}]);
+  });
+  await t.test('exportaciones entregan CSV completos solo al dueño',async()=>{
+   assert.equal((await download('/api/exports/orders.csv',managerToken)).status,403);
+   for(const dataset of ['orders','sales','purchases','movements']){const exported=await download(`/api/exports/${dataset}.csv`);assert.equal(exported.status,200);assert.match(exported.type??'',/^text\/csv/);assert.match(exported.disposition??'',/attachment/);assert.ok(exported.text.startsWith('\uFEFF"'));}
+  });
+  await t.test('reinicio seguro pone existencias en cero y conserva trazabilidad',async()=>{
+   assert.equal((await call('/api/inventory/reset-stock','POST',{confirmation:'REINICIAR'},managerToken)).status,403);
+   assert.equal((await call('/api/inventory/reset-stock','POST',{confirmation:'reiniciar'})).status,400);
+   const before=await InventoryMovement.countDocuments();const result=await call('/api/inventory/reset-stock','POST',{confirmation:'REINICIAR'});assert.equal(result.status,201,result.message ?? 'Reinicio rechazado');
+   assert.equal(await Ingredient.countDocuments({active:true,stock:{$ne:0}}),0);assert.equal(await InventoryCount.countDocuments({label:'Reinicio de stock'}),1);assert.ok(await InventoryMovement.countDocuments()>before);
   });
  }finally{if(server)await new Promise<void>(resolve=>server!.close(()=>resolve()));await mongoose.disconnect();await mongo.stop();}
 });
