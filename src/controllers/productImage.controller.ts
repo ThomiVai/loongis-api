@@ -184,7 +184,7 @@ export async function getProductImage(
     "Cross-Origin-Resource-Policy":
       "cross-origin",
   });
-  response.status(200).send(image.data);
+  response.status(200).end(image.data);
 }
 
 export async function deleteProductImage(

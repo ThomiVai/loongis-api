@@ -82,9 +82,9 @@ function orderItemsText(
   items: Array<{
     name: string;
     quantity: number;
-  }>,
+  }> | undefined,
 ): string {
-  return items
+  return (items ?? [])
     .map(
       (item) =>
         `${item.quantity} x ${item.name}`,
@@ -124,9 +124,9 @@ export async function exportOrders(
       order.orderNumber,
       order.createdAt,
       order.status,
-      order.customer.name,
-      order.customer.phone,
-      order.customer.address,
+      order.customer?.name,
+      order.customer?.phone,
+      order.customer?.address,
       order.paymentMethod,
       orderItemsText(order.items),
       order.productsTotal,
@@ -167,7 +167,7 @@ export async function exportSales(
       order.orderNumber,
       order.createdAt,
       order.paymentMethod,
-      order.items.reduce(
+      (order.items ?? []).reduce(
         (total, item) =>
           total + item.quantity,
         0,
