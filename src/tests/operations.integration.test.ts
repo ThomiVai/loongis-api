@@ -15,6 +15,7 @@ import { ProductRecipe } from '../models/productRecipe.model';
 import { StoreSettings } from '../models/storeSettings.model';
 import { Order } from '../models/order.model';
 import { InventoryCount } from '../models/inventoryCount.model';
+import { migrateDoubleCombos } from '../services/comboMigration';
 
 test('operaciones completas en MongoDB temporal, sin usar configuración de producción', {timeout:240000}, async t => {
  const mongo=await MongoMemoryReplSet.create({replSet:{count:1},binary:{version:'7.0.24'}});
@@ -108,6 +109,21 @@ test('operaciones completas en MongoDB temporal, sin usar configuración de prod
    assert.equal((await call('/api/inventory/reset-stock','POST',{confirmation:'reiniciar'})).status,400);
    const before=await InventoryMovement.countDocuments();const result=await call('/api/inventory/reset-stock','POST',{confirmation:'REINICIAR'});assert.equal(result.status,201,result.message ?? 'Reinicio rechazado');
    assert.equal(await Ingredient.countDocuments({active:true,stock:{$ne:0}}),0);assert.equal(await InventoryCount.countDocuments({label:'Reinicio de stock'}),1);assert.ok(await InventoryMovement.countDocuments()>before);
+  });
+  await t.test('migración de combos conserva precios y exige las dos hamburguesas al registrar',async()=>{
+   await StoreSettings.updateOne({_id:'main'},{$set:{orderMode:'open',inventoryTrackingEnabled:false}});
+   for(const legacyId of [101,110])await Product.create({legacyId,name:'Combo anterior',slug:`combo-${legacyId}`,description:'Anterior',price:12345,image:'/original.png',imageAlt:'Original',category:new mongoose.Types.ObjectId(),active:true});
+   await migrateDoubleCombos();
+   for(const legacyId of [101,110]){
+    const product=(await Product.findOne({legacyId}))!;
+    assert.equal(product.price,12345);assert.equal(product.image,'/original.png');assert.equal(product.choiceGroups.length,2);
+    const choices=product.choiceGroups.map(group=>({groupId:group.id,optionId:group.options[0].id,removedIngredients:[]}));
+    const body={requestKey:crypto.randomUUID(),customer:{name:'Prueba Combo',phone:'1123456789',address:'Prueba 123'},deliveryMethod:'delivery',paymentMethod:'cash',items:[{legacyId,quantity:1,customization:{extraIds:[],removedIngredients:[],choices,notes:''}}],generalNotes:''};
+    const created=await call('/api/orders','POST',body,'');assert.equal(created.status,201,created.message ?? 'Pedido rechazado');assert.equal(created.data.items[0].name,legacyId===101?'Combo Gula':'Combo Tranka');assert.equal(created.data.items[0].customization.choices.length,2);
+    body.requestKey=crypto.randomUUID();body.items[0].customization.choices=choices.slice(0,1);assert.equal((await call('/api/orders','POST',body,'')).status,400);
+   }
+   await Product.updateOne({legacyId:101},{$set:{description:'Edición posterior'}});
+   await migrateDoubleCombos();assert.equal((await Product.findOne({legacyId:101}))!.description,'Edición posterior');
   });
  }finally{if(server)await new Promise<void>(resolve=>server!.close(()=>resolve()));await mongoose.disconnect();await mongo.stop();}
 });

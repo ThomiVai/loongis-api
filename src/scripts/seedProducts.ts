@@ -3,6 +3,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 
 import { connectDatabase } from "../config/database";
+import { getComboConfiguration } from "../services/comboConfiguration";
 import { Category } from "../models/category.model";
 
 import {
@@ -527,7 +528,9 @@ async function seedProducts(): Promise<void> {
       }
 
       await Product.create(
-        product,
+        product.legacyId === 101 || product.legacyId === 110
+          ? { ...product, ...getComboConfiguration(product.legacyId) }
+          : product,
       );
 
       console.log(

@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import { app } from "./app";
 import { connectDatabase } from "./config/database";
+import { migrateDoubleCombos } from "./services/comboMigration";
 
 const port =
   Number(
@@ -12,6 +13,7 @@ const port =
 async function startServer(): Promise<void> {
   try {
     await connectDatabase();
+    await migrateDoubleCombos();
 
     app.listen(
       port,
