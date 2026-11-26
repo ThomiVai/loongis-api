@@ -59,7 +59,6 @@ const adminSchema =
       tokenVersion: {
         type: Number,
         default: 0,
-        select: false,
       },
 
       role: {
