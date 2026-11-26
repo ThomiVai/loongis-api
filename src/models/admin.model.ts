@@ -41,6 +41,27 @@ const adminSchema =
         select: false,
       },
 
+      passwordResetTokenHash: {
+        type: String,
+        select: false,
+      },
+
+      passwordResetExpiresAt: {
+        type: Date,
+        select: false,
+      },
+
+      passwordResetRequestedAt: {
+        type: Date,
+        select: false,
+      },
+
+      tokenVersion: {
+        type: Number,
+        default: 0,
+        select: false,
+      },
+
       role: {
         type: String,
         enum: [
