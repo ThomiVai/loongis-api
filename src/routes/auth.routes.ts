@@ -6,6 +6,8 @@ import {
   getCurrentAdmin,
   loginAdmin,
   changeOwnPassword,
+  requestPasswordReset,
+  resetPassword,
 } from "../controllers/auth.controller";
 
 import {
@@ -22,6 +24,16 @@ export const authRouter =
 authRouter.post(
   "/login",
   loginAdmin,
+);
+
+authRouter.post(
+  "/forgot-password",
+  requestPasswordReset,
+);
+
+authRouter.post(
+  "/reset-password",
+  resetPassword,
 );
 
 /* ========================================
