@@ -38,6 +38,7 @@ import type {
   OrderChoiceSnapshot,
   OrderOptionSnapshot,
   OrderStatus,
+  KitchenStatus,
 } from "../models/order.model";
 
 /* ========================================
@@ -838,6 +839,8 @@ export async function createOrder(
         status:
           "pending",
 
+        kitchenStatus: "new",
+
         generalNotes,
       });
 
@@ -920,6 +923,17 @@ function isOrderStatus(
   return orderStatuses.includes(
     value as OrderStatus,
   );
+}
+
+const kitchenStatuses: KitchenStatus[] = [
+  "new",
+  "preparing",
+  "ready",
+  "completed",
+];
+
+function isKitchenStatus(value: string): value is KitchenStatus {
+  return kitchenStatuses.includes(value as KitchenStatus);
 }
 
 function getOrderId(
@@ -1139,6 +1153,14 @@ export async function updateOrderStatus(
           response.locals.admin,
         );
 
+      if (
+        !result.alreadyConfirmed &&
+        result.order.kitchenStatus === "new"
+      ) {
+        result.order.kitchenStatus = "preparing";
+        await result.order.save();
+      }
+
       response
         .status(200)
         .json({
@@ -1216,5 +1238,93 @@ export async function updateOrderStatus(
         message:
           "No se pudo actualizar el estado del pedido.",
       });
+  }
+}
+
+
+/* ========================================
+   ACTUALIZAR FLUJO DE COCINA - ADMIN
+======================================== */
+
+export async function updateKitchenOrderStatus(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  try {
+    const orderId = getOrderId(request);
+    if (!orderId) {
+      response.status(400).json({ success: false, message: "El identificador del pedido no es válido." });
+      return;
+    }
+
+    if (!isObject(request.body)) {
+      response.status(400).json({ success: false, message: "La actualización no tiene un formato válido." });
+      return;
+    }
+
+    const nextStatus = getString(request.body.kitchenStatus);
+    if (!isKitchenStatus(nextStatus) || nextStatus === "new") {
+      response.status(400).json({ success: false, message: "El estado de cocina solicitado no es válido." });
+      return;
+    }
+
+    let order = await Order.findById(orderId);
+    if (!order) {
+      response.status(404).json({ success: false, message: "El pedido solicitado no existe." });
+      return;
+    }
+
+    if (order.status === "cancelled") {
+      response.status(409).json({ success: false, message: "No se puede avanzar un pedido cancelado." });
+      return;
+    }
+
+    const currentStatus: KitchenStatus =
+      order.status === "confirmed" && (!order.kitchenStatus || order.kitchenStatus === "new")
+        ? "preparing"
+        : order.kitchenStatus ?? "new";
+
+    if (nextStatus === currentStatus) {
+      response.status(200).json({ success: true, message: "El pedido ya estaba en ese estado.", data: order.toObject() });
+      return;
+    }
+
+    if (currentStatus === "new" && nextStatus === "preparing" && order.status === "pending") {
+      const result = await confirmOrderWithInventory(orderId, response.locals.admin);
+      order = result.order;
+      order.kitchenStatus = "preparing";
+      await order.save();
+      response.status(200).json({ success: true, message: result.inventorySkipped ? "Pedido aceptado y en preparación. No se descontó stock porque el control está desactivado." : "Pedido aceptado y en preparación.", data: order.toObject() });
+      return;
+    }
+
+    if (order.status !== "confirmed") {
+      response.status(409).json({ success: false, message: "Primero tenés que aceptar el pedido para empezar a prepararlo." });
+      return;
+    }
+
+    const allowedNext: Record<KitchenStatus, KitchenStatus[]> = {
+      new: ["preparing"],
+      preparing: ["ready"],
+      ready: ["completed"],
+      completed: [],
+    };
+
+    if (!allowedNext[currentStatus].includes(nextStatus)) {
+      response.status(409).json({ success: false, message: "Ese avance no corresponde al estado actual del pedido." });
+      return;
+    }
+
+    order.kitchenStatus = nextStatus;
+    await order.save();
+    response.status(200).json({ success: true, message: "Estado de cocina actualizado.", data: order.toObject() });
+  } catch (error) {
+    if (error instanceof OrderInventoryError) {
+      response.status(error.statusCode).json({ success: false, message: error.message });
+      return;
+    }
+
+    console.error("Error al actualizar el estado de cocina:", error);
+    response.status(500).json({ success: false, message: "No se pudo actualizar el estado de cocina." });
   }
 }

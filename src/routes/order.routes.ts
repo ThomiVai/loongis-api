@@ -8,6 +8,7 @@ import {
   getOrderById,
   getOrders,
   updateOrderStatus,
+  updateKitchenOrderStatus,
 } from "../controllers/order.controller";
 
 import {
@@ -48,4 +49,10 @@ orderRouter.patch(
   "/:id/status",
   requireAdmin,
   updateOrderStatus,
+);
+
+orderRouter.patch(
+  "/:id/kitchen-status",
+  requireAdmin,
+  updateKitchenOrderStatus,
 );
