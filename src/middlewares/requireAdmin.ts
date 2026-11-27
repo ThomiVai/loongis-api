@@ -117,10 +117,15 @@ export async function requireAdmin(
     const role =
       decodedToken.role;
 
+    const tokenVersion =
+      decodedToken.tokenVersion;
+
     if (
       typeof adminId !==
         "string" ||
       !isAdminRole(role) ||
+      (tokenVersion !== undefined &&
+        typeof tokenVersion !== "number") ||
       !mongoose.Types.ObjectId.isValid(
         adminId,
       )
@@ -149,6 +154,19 @@ export async function requireAdmin(
         success: false,
         message:
           "La sesión ya no es válida.",
+      });
+
+      return;
+    }
+
+    if (
+      (tokenVersion ?? 0) !==
+      (admin.tokenVersion ?? 0)
+    ) {
+      response.status(401).json({
+        success: false,
+        message:
+          "La sesión ya no es válida. Volvé a iniciar sesión.",
       });
 
       return;
