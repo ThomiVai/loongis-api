@@ -17,6 +17,12 @@ export type OrderStatus =
   | "confirmed"
   | "cancelled";
 
+export type KitchenStatus =
+  | "new"
+  | "preparing"
+  | "ready"
+  | "completed";
+
 export type OrderInventoryTrackingStatus =
   | "not_enabled"
   | "deducted"
@@ -98,6 +104,7 @@ export interface OrderDocument {
   total: number;
 
   status: OrderStatus;
+  kitchenStatus?: KitchenStatus;
 
   inventoryDeductedAt?: Date;
 
@@ -375,6 +382,12 @@ const orderSchema =
         ],
         default: "pending",
         index: true,
+      },
+
+      kitchenStatus: {
+        type: String,
+        enum: ["new", "preparing", "ready", "completed"],
+        default: "new",
       },
 
       inventoryDeductedAt: {
